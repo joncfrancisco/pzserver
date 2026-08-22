@@ -1,0 +1,10 @@
+[Unit]
+Description=PZ idle watchdog and metrics publisher
+After=pz-config.service
+Requires=pz-config.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/pz/bin/pz-watchdog.sh
+# Runs as root: it needs to systemctl stop pzserver and call ec2:StopInstances.
+User=root

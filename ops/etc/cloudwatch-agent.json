@@ -1,0 +1,24 @@
+{
+  "agent": {
+    "metrics_collection_interval": 60,
+    "run_as_user": "root"
+  },
+  "metrics": {
+    "namespace": "CWAgent",
+    "append_dimensions": {
+      "InstanceId": "${aws:InstanceId}"
+    },
+    "aggregation_dimensions": [["InstanceId"]],
+    "metrics_collected": {
+      "disk": {
+        "measurement": ["disk_used_percent"],
+        "resources": ["/opt/pz/data"],
+        "ignore_file_system_types": ["sysfs", "devtmpfs", "tmpfs", "overlay"],
+        "drop_device": true
+      },
+      "mem": {
+        "measurement": ["mem_used_percent"]
+      }
+    }
+  }
+}

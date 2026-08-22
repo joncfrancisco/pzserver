@@ -1,0 +1,11 @@
+[Unit]
+Description=PZ scheduled backup (T1 local + T2 S3)
+After=pz-config.service
+Requires=pz-config.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/pz/bin/pz-backup.sh scheduled
+User=root
+Nice=10
+IOSchedulingClass=idle

@@ -1,0 +1,26 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl.bak
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+tfplan
+*.tfplan
+
+# Never commit variable files that could carry a secret. prod.tfvars is committed on
+# purpose and contains no secrets -- everything sensitive lives in SSM Parameter Store.
+*.auto.tfvars
+secrets.tfvars
+
+# Local
+.DS_Store
+*.pem
+.env
+.env.*

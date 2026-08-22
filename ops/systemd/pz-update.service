@@ -1,0 +1,24 @@
+# SteamCMD update, before every start.
+#
+# Guarded by a flag file: `sudo touch /opt/pz/skip-update` pins the current build, which
+# is what you want when a PZ update has broken something and you need the world up on
+# the version that worked.
+[Unit]
+Description=Update the Project Zomboid dedicated server via SteamCMD
+After=network-online.target opt-pz-data.mount
+Wants=network-online.target
+Before=pzserver.service
+ConditionPathExists=!/opt/pz/skip-update
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=pzuser
+Group=pzuser
+TimeoutStartSec=1800
+ExecStart=/usr/games/steamcmd +force_install_dir /opt/pz/server +login anonymous +app_update 380870 validate +quit
+# A Steam outage must not stop people playing on the build already on disk.
+SuccessExitStatus=0 6 7
+
+[Install]
+WantedBy=multi-user.target

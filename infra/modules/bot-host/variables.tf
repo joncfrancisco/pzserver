@@ -1,0 +1,10 @@
+variable "name_prefix" { type = string }
+variable "stack" { type = string }
+variable "region" { type = string }
+variable "subnet_id" { type = string }
+variable "security_group_id" { type = string }
+variable "instance_type" { type = string }
+variable "backup_bucket_arn" { type = string }
+variable "backup_bucket_name" { type = string }
+variable "ssm_prefix" { type = string }
+variable "alert_topic_arn" { type = string }

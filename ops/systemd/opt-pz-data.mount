@@ -1,0 +1,25 @@
+# The world's filesystem.
+#
+# NOTE THE FILENAME. DESIGN section 8 calls this unit `pz-data.mount`, but systemd
+# derives mount unit names from the mount point: a unit for /opt/pz/data MUST be named
+# opt-pz-data.mount or systemd refuses to load it ("Where= setting doesn't match unit
+# name"). Renaming it is not cosmetic -- under the design's name nothing below would
+# ever start.
+[Unit]
+Description=Project Zomboid data volume (the world)
+Before=pzserver.service
+DefaultDependencies=no
+After=systemd-fsck@dev-disk-by\x2dlabel-pzdata.service
+Requires=systemd-fsck@dev-disk-by\x2dlabel-pzdata.service
+
+[Mount]
+# By label, not by device path: on Nitro the volume attached as /dev/sdf appears as
+# /dev/nvme1n1 and the number is not guaranteed stable across reboots. provision.sh
+# stamps the label `pzdata` on the filesystem.
+What=/dev/disk/by-label/pzdata
+Where=/opt/pz/data
+Type=ext4
+Options=defaults,noatime
+
+[Install]
+WantedBy=multi-user.target

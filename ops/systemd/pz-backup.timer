@@ -1,0 +1,13 @@
+[Unit]
+Description=Back up the PZ world every 30 minutes while the server is up
+
+[Timer]
+# 30 minutes is the RPO from DESIGN G4. The timer runs regardless of whether anyone is
+# playing; pz-backup.sh short-circuits cheaply when the server is not running.
+OnBootSec=10min
+OnUnitActiveSec=30min
+AccuracySec=1min
+Unit=pz-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,46 @@
+# The game.
+#
+# `enabled`, so a bare ec2:StartInstances is enough to bring the world up -- the bot
+# never needs to SSH in or send a command to start the game. That is deliberate: the
+# start path has exactly one failure point.
+[Unit]
+Description=Project Zomboid dedicated server
+After=network-online.target opt-pz-data.mount pz-config.service pz-update.service
+Wants=network-online.target pz-update.service
+Requires=opt-pz-data.mount pz-config.service
+RequiresMountsFor=/opt/pz/data
+
+# Three restarts in fifteen minutes means the problem is not transient. Give up rather
+# than loop -- a crash loop burns the instance-hour budget and buries the real error.
+# These are [Unit] directives (they moved out of [Service] in systemd v230); in
+# [Service] they parse but are ignored, so the guard would silently not exist.
+StartLimitBurst=3
+StartLimitIntervalSec=900
+
+[Service]
+Type=simple
+User=pzuser
+Group=pzuser
+EnvironmentFile=/etc/pz/env
+WorkingDirectory=/opt/pz/server
+
+ExecStart=/opt/pz/bin/pz-start-server.sh
+
+# The safety net behind G5. Because the instance's shutdown behaviour is ACPI stop, even
+# an ec2:StopInstances issued from the console reaches this: ACPI -> systemd stop ->
+# RCON save -> RCON quit. There is no way to stop this box that skips a save.
+ExecStop=/opt/pz/bin/pz-stop-server.sh
+# Room for PZ to flush a large world before systemd escalates to SIGKILL.
+TimeoutStopSec=180
+KillSignal=SIGTERM
+KillMode=mixed
+
+Restart=on-failure
+RestartSec=30
+
+# The JVM is the only thing that should be eating this box's memory.
+LimitNOFILE=65536
+OOMPolicy=stop
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,24 @@
+# Renders /etc/pz/env from SSM Parameter Store, on every boot.
+#
+# This is the unit that makes DESIGN C6 a non-issue: cloud-init runs once, but the
+# instance is stopped and started for its whole life, so configuration has to be pulled
+# fresh rather than baked in at first boot.
+[Unit]
+Description=Refresh PZ configuration from SSM Parameter Store
+After=network-online.target
+Wants=network-online.target
+Before=pzserver.service pz-watchdog.service
+RequiresMountsFor=/opt/pz/data
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/pz/bin/pz-config-refresh.sh
+# Parameter Store is occasionally slow to answer immediately after boot.
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

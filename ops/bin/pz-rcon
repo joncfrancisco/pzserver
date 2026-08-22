@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""Minimal Source RCON client for the Project Zomboid dedicated server.
+
+Vendored rather than pip-installed. The protocol is about sixty lines and this is the
+single most load-bearing dependency on the box -- every save, every player count, every
+graceful shutdown goes through it. A vendored copy cannot break because a small package
+went unmaintained, and it keeps the game server free of a Python dependency chain.
+
+Reads PZ_RCON_PASSWORD (and optionally PZ_RCON_HOST / PZ_RCON_PORT) from the
+environment, which on the server means /etc/pz/env.
+
+    pz-rcon players
+    pz-rcon save
+    pz-rcon 'servermsg "back in 5"'
+
+Exit codes:  0 ok | 1 usage/protocol error | 2 cannot connect | 3 auth failed
+"""
+
+import os
+import socket
+import struct
+import sys
+
+SERVERDATA_AUTH = 3
+SERVERDATA_AUTH_RESPONSE = 2
+SERVERDATA_EXECCOMMAND = 2
+SERVERDATA_RESPONSE_VALUE = 0
+
+
+class RconError(Exception):
+    pass
+
+
+class AuthError(RconError):
+    pass
+
+
+def _pack(req_id: int, req_type: int, body: str) -> bytes:
+    payload = struct.pack("<ii", req_id, req_type) + body.encode("utf-8") + b"\x00\x00"
+    return struct.pack("<i", len(payload)) + payload
+
+
+def _recv_exactly(sock: socket.socket, n: int) -> bytes:
+    buf = b""
+    while len(buf) < n:
+        chunk = sock.recv(n - len(buf))
+        if not chunk:
+            raise RconError("connection closed mid-packet")
+        buf += chunk
+    return buf
+
+
+def _read_packet(sock: socket.socket):
+    size = struct.unpack("<i", _recv_exactly(sock, 4))[0]
+    if size < 10 or size > 4_194_304:
+        raise RconError(f"implausible packet size {size}")
+    payload = _recv_exactly(sock, size)
+    req_id, req_type = struct.unpack("<ii", payload[:8])
+    body = payload[8:].split(b"\x00", 1)[0].decode("utf-8", errors="replace")
+    return req_id, req_type, body
+
+
+def execute(host: str, port: int, password: str, command: str, timeout: float = 10.0) -> str:
+    with socket.create_connection((host, port), timeout=timeout) as sock:
+        sock.settimeout(timeout)
+
+        sock.sendall(_pack(1, SERVERDATA_AUTH, password))
+        # The server may emit an empty RESPONSE_VALUE before the auth verdict; some
+        # implementations skip it. Skip past anything that is not the verdict.
+        while True:
+            req_id, req_type, _ = _read_packet(sock)
+            if req_type == SERVERDATA_AUTH_RESPONSE:
+                break
+        if req_id == -1:
+            raise AuthError("RCON authentication failed (wrong password?)")
+
+        sock.sendall(_pack(2, SERVERDATA_EXECCOMMAND, command))
+
+        # PZ answers in a single packet in practice, but drain until the socket goes
+        # quiet so a long `players` list on a busy server is never truncated.
+        parts = []
+        sock.settimeout(timeout)
+        while True:
+            try:
+                _, req_type, body = _read_packet(sock)
+            except (socket.timeout, TimeoutError):
+                break
+            if req_type == SERVERDATA_RESPONSE_VALUE:
+                parts.append(body)
+            if len(body) < 3500:  # short packet: response is complete
+                sock.settimeout(0.4)  # brief drain for a possible trailer, then stop
+        return "".join(parts).strip()
+
+
+def main(argv) -> int:
+    if len(argv) < 2:
+        print(__doc__, file=sys.stderr)
+        return 1
+
+    password = os.environ.get("PZ_RCON_PASSWORD", "")
+    if not password:
+        print("pz-rcon: PZ_RCON_PASSWORD is not set (source /etc/pz/env)", file=sys.stderr)
+        return 1
+
+    host = os.environ.get("PZ_RCON_HOST", "127.0.0.1")
+    port = int(os.environ.get("PZ_RCON_PORT", "27015"))
+    timeout = float(os.environ.get("PZ_RCON_TIMEOUT", "10"))
+    command = " ".join(argv[1:])
+
+    try:
+        print(execute(host, port, password, command, timeout))
+    except AuthError as exc:
+        print(f"pz-rcon: {exc}", file=sys.stderr)
+        return 3
+    except (OSError, socket.timeout) as exc:
+        print(f"pz-rcon: cannot reach {host}:{port}: {exc}", file=sys.stderr)
+        return 2
+    except RconError as exc:
+        print(f"pz-rcon: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

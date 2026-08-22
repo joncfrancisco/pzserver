@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# First-boot bootstrap ONLY. cloud-init does not re-run on a stop/start (DESIGN C6),
+# so this file must contain nothing that needs to happen more than once. Everything
+# recurring is a systemd unit installed by provision.sh.
+#
+# Its entire job: get the AWS CLI, pull the ops tree, hand off to provision.sh.
+set -euo pipefail
+exec > >(tee -a /var/log/pz-bootstrap.log) 2>&1
+echo "=== pz bootstrap starting $(date -Is) ==="
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y curl unzip ca-certificates
+
+# AWS CLI v2 (not in Ubuntu's archive under a name we want to depend on).
+if ! command -v aws >/dev/null 2>&1; then
+  tmp="$(mktemp -d)"
+  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "$tmp/awscliv2.zip"
+  unzip -q "$tmp/awscliv2.zip" -d "$tmp"
+  "$tmp/aws/install"
+  rm -rf "$tmp"
+fi
+
+export AWS_DEFAULT_REGION="${region}"
+
+mkdir -p /opt/pz/bootstrap
+aws s3 sync "s3://${bucket}/ops/" /opt/pz/bootstrap/
+chmod +x /opt/pz/bootstrap/provision.sh /opt/pz/bootstrap/bin/*
+
+# provision.sh is idempotent on purpose: it is what runs here, what you re-run over SSM
+# after changing an ops file, and what a Packer build will run at bake time in Phase 5.
+/opt/pz/bootstrap/provision.sh
+
+echo "=== pz bootstrap finished $(date -Is) ==="

@@ -1,0 +1,11 @@
+# Everything under ops/ is shipped to the Linux game server and executed there -- the
+# shell scripts by their shebang, the unit files by systemd's parser. CRLF breaks both,
+# and the failure is obscure (`bad interpreter: /usr/bin/env^M`). Pin them to LF.
+#
+# Same rule, and same reason, as the foodblog repo.
+*.sh            text eol=lf
+ops/bin/*       text eol=lf
+ops/systemd/*   text eol=lf
+ops/etc/*       text eol=lf
+*.tf            text eol=lf
+*.tftpl         text eol=lf
