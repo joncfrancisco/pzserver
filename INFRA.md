@@ -1,10 +1,13 @@
 # Infrastructure
 
-> **Status: built in code, not yet applied.** Every resource below exists as Terraform
-> and has been checked with `terraform validate` and a `terraform plan` against live AWS
-> (2026-08-22): 72 resources, no errors, data sources resolving against the real account.
-> Nothing has been created yet — `terraform apply` starts the meter. See
-> [DEPLOY.md](DEPLOY.md) for the order to do it in.
+> **Status: LIVE as of 2026-08-22.** Applied to account 020949219706 (72 resources).
+> The world is up, `pz.joncfrancis.co:16261` resolves and answers, and the full
+> stop→save→start cycle has been verified end to end. **Billing is running**: ~$16/month
+> fixed plus ~$0.20 per hour the game server is up.
+>
+> Live IDs: game `i-0c319547d110e4179` · bot `i-09158ffe716ee3c5e` ·
+> EIP `34.233.59.251` · data volume `vol-09e3f5065531b0ccb` ·
+> bucket `pz-prod-backups-020949219706`.
 >
 > Account: **020949219706** — **shared**. This is the same account that runs
 > [foodblog](../foodblog) (`joncfrancis.co`), `symfal.com`, and several other IAM
@@ -341,6 +344,47 @@ is written down: a 3-year Reserved Instance bills 24/7 at $0.091/hr = **$66/mont
 on-demand-plus-stopping is cheaper than even a 3-year commitment until about **11 hours a
 day** of play. Nobody should "optimize" this into an RI.
 
+## What the first apply found
+
+`terraform plan` cannot catch runtime behaviour. Five things only surfaced on a real
+apply, all fixed in the commits that followed:
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `pz-config.service` failed on first boot, taking the rest of provisioning with it | The role granted `ssm:GetParameter` but the script calls **`GetParametersByPath`** — a distinct action, and one that authorizes against the *path* resource, not only the parameters beneath it | Added the action and both ARNs to `pz-gameserver-role` |
+| `steamcmd`: `Failed to install app '380870' (Missing configuration)` | **`+force_install_dir` preceded `+login`.** SteamCMD authenticates fine, then rejects the app with a message that points nowhere near the cause | `+login anonymous` first, in `pz-update.service` |
+| `pz-start-server.sh: /etc/pz/env: Permission denied` | The env file was `0600 root:root`, but `ExecStart` drops to `User=pzuser` before running | `0640 root:pzuser` — readable by the service account, nobody else |
+| `pz-preflight: FATAL: PZ_XMX=12g exceeds 75% of MemTotal` | **A "16 GiB" `m7i.xlarge` reports `MemTotal` = 15703 MiB.** The design's `-Xmx12g` is 78% of that | `game_xmx = "11g"`, which also lands closer to the design's stated "~4 GiB for OS + page cache" |
+| PZ logged `Router detection… If the server hangs here, set UPnP=false` | There is no UPnP router in a VPC | `UPnP=false` added to the managed `.ini` keys |
+
+The `-Xmx` one is worth dwelling on: **the boot-time assertion did exactly the job it was
+added for.** It turned the single most common PZ hosting mistake into a loud refusal to
+start, forty seconds in, instead of an OOM kill three hours into a session. Size heap
+against `MemTotal`, never against the instance type's marketing number.
+
+## Verified on the live stack
+
+- **DNS** — `pz.joncfrancis.co` → `34.233.59.251`; `joncfrancis.co` still → `52.201.206.142`
+  and the blog still answers HTTP 200. The shared zone works as designed.
+- **Boot chain is unattended** — `ec2:StartInstances` alone took the box from `stopped` to
+  a world answering RCON: mount → `pz-config` → `pz-update` (SteamCMD validate) →
+  `pzserver`. No command sent, no shell.
+- **G5 holds.** An `aws ec2 stop-instances` — the console path, bypassing the bot entirely
+  — reached `ExecStop` via ACPI: `pz-stop: saving world` → `World saved` → `Quit` →
+  `PZ exited cleanly`, in about 30 seconds, with the save directory's mtime advancing to
+  prove it. **There is no way to stop this box that skips a save.**
+- **Backups** — a manual run forced an RCON save, archived all three of
+  `Saves/Multiplayer/pzprod` + `Server/` + `db/`, and landed in S3 (771 KiB for a fresh
+  world).
+- **Metrics** — all four `PZ/*` metrics publishing on the 60s timer, with `ServerReady`
+  correctly stepping 0 → 1 as the world finished loading.
+- **Security** — only UDP 16261–16262 is world-open; RCON 27015 is source-restricted to
+  `sg-bot`; no port 22 rule exists anywhere in the account; no key pairs exist; the backup
+  bucket blocks all public access.
+- **Config plumbing** — changing `game_xmx` in `prod.tfvars` and applying moved the value
+  through Parameter Store to `/etc/pz/env` on the next start, with no reprovisioning.
+  C6 is handled.
+
 ## Known issues & gotchas
 
 - **`Safety Net` must be raised before `apply`.** The account's only cost guardrail is a
@@ -365,6 +409,12 @@ day** of play. Nobody should "optimize" this into an RI.
 - **`provision.sh` formats only a device with no filesystem on it.** That single condition
   is what stands between a re-provision and the deletion of the world. Do not "simplify"
   it into an unconditional `mkfs`.
+- **The PZ admin password is visible in `ps`.** `pz-start-server.sh` passes it as
+  `-adminpassword`, so it appears in the process command line to any local user. Exposure
+  is small — the box has only `root` and `pzuser`, and no SSH — but it is real. PZ stores
+  the password in `db/` after first run, so the argument could be dropped once set; it is
+  kept because dropping it would break password rotation. Worth revisiting if a third
+  local account ever appears.
 - **No SSH.** If SSM is broken, there is no way in. `provision.sh` warns if the SSM agent
   is not running; treat that warning as blocking.
 - **PZ is x86_64 only** ([C1](DESIGN.md#3-constraints-that-shape-the-design)). The game

@@ -5,11 +5,18 @@ availability_zone = "us-east-1a"
 stack             = "prod"
 
 # --- Game server ---
-# m7i.xlarge / 12g is the DESIGN default for 6-8 players on Build 42.
-# If B42 memory growth bites, the upgrade is r7i.xlarge + game_xmx = "24g"
-# (RAM runs out before cores do -- DESIGN C2/C3).
+# m7i.xlarge for 6-8 players on Build 42 (DESIGN C1/C2/C3).
+#
+# 11g, not the design's 12g. A "16 GiB" instance reports MemTotal = 15703 MiB once
+# firmware and the kernel have taken their share, and 12g (12288 MiB) is 78% of that --
+# over the 75% ceiling pz-preflight.sh enforces, which refused to start until this was
+# corrected. 11g leaves ~4.3 GiB for the OS and page cache, which is actually closer to
+# the design's stated intent ("leaving ~4 GiB") than 12g ever was.
+#
+# If B42 memory growth bites, the upgrade is r7i.xlarge + game_xmx = "23g" -- same
+# arithmetic, RAM runs out before cores do.
 game_instance_type = "m7i.xlarge"
-game_xmx           = "12g"
+game_xmx           = "11g"
 server_name        = "pzprod"
 
 # Direct-connect only. Flip to true ONLY if you also set Public=true in the server .ini;

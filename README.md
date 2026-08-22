@@ -46,14 +46,20 @@ Three things carry most of the design's weight:
 
 ## Status
 
-**Nothing is deployed yet.** The Terraform validates and plans cleanly against live AWS
-(72 resources, 2026-08-22); `terraform apply` has not been run. Start at
-[DEPLOY.md § First-time setup](DEPLOY.md#first-time-setup) — and read
-[step 0](DEPLOY.md#0-before-anything-raise-the-account-budget) before anything else, since
-standing this up affects the account-wide budget that currently watches foodblog.
+**Live since 2026-08-22.** Connect at **`pz.joncfrancis.co:16261`**.
 
-Expected cost: **~$41/month** at 4 hours a day, against ~$164 for the same box left
-running. About $16 of that is fixed and paid whether anyone plays or not.
+The stack is applied (72 resources) and the full cycle is verified: a bare
+`ec2:StartInstances` brings the world up unattended, and an `ec2:StopInstances` — even
+from the AWS console — saves the world on the way down. Backups, metrics and the idle
+watchdog are all running.
+
+**The Discord bot does not exist yet**, so start/stop is by CLI for now — the two commands
+are in [DEPLOY.md § Running it by hand](DEPLOY.md#running-it-by-hand-before-the-bot-exists).
+Everything the bot will need is in `terraform output bot_contract`.
+
+Cost: **~$41/month** at 4 hours a day, against ~$164 for the same box left running. About
+$16 of that is fixed and paid whether anyone plays or not. The server stops itself after
+30 idle minutes.
 
 ## Cost, in one table
 
