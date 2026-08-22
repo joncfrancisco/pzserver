@@ -44,26 +44,34 @@ aws budgets update-budget --account-id 020949219706 \
 Terraform deliberately does not manage this budget — it predates PZ and protects other
 projects in a shared account.
 
-### 1. Activate cost allocation tags
+### 1. Cost allocation tags — note the ordering trap
 
-The PZ budget filters on the `pz:stack` tag. **Activation is not retroactive**, so do it
-now rather than after the first bill.
+The PZ budget filters on the `pz:stack` tag, and **that filter matches nothing until the
+tag is activated in Billing**.
+
+You cannot activate it yet. AWS only offers a tag key for activation once it has *seen*
+it on a real resource, so running the command before `apply` fails with
+`Tag keys not found: pz:stack,project`. It is therefore a **post-apply** step — do it
+immediately after step 3, not before:
 
 ```bash
 aws ce update-cost-allocation-tags-status --cost-allocation-tags-status \
-  TagKey=pz:stack,Status=Active TagKey=project,Status=Active
+  'TagKey=pz:stack,Status=Active' 'TagKey=project,Status=Active'
 ```
 
-Verify (may take up to 24 h to appear as `Active`):
+Verify (the key can take a few hours to appear for activation, and up to 24 h to show as
+`Active` afterwards):
 
 ```bash
 aws ce list-cost-allocation-tags --status Active \
   --query 'CostAllocationTags[?TagKey==`pz:stack`]'
 ```
 
-⚠️ Until this is `Active`, `pz-prod-monthly` reports **$0.00 spent** regardless of actual
-cost. It will look healthy while protecting nothing. Check it again a week after the
-first apply.
+⚠️ **Activation is not retroactive** — it applies from activation onward, so any spend
+before you run this is invisible to the budget forever. And until it is `Active`,
+`pz-prod-monthly` reports **$0.00 spent** regardless of actual cost: it looks healthy
+while protecting nothing. Put a reminder in a week to confirm it is reporting real
+numbers.
 
 ### 2. Secrets
 
@@ -111,6 +119,9 @@ floor of ~$16/month applies whether or not anyone plays.
 
 Confirm the SNS email subscription when it arrives; unconfirmed subscriptions silently
 drop every alert.
+
+**Now go back and do [step 1](#1-cost-allocation-tags--note-the-ordering-trap)** — the tag
+keys exist as of this apply, so activation will work from here on.
 
 ### 4. First boot
 

@@ -57,11 +57,21 @@ resource "aws_iam_role_policy" "game" {
         }
       },
       {
-        # RCON and PZ admin passwords, read once at boot.
-        Sid      = "ReadOwnSecrets"
-        Effect   = "Allow"
-        Action   = ["ssm:GetParameter", "ssm:GetParameters"]
-        Resource = "arn:${data.aws_partition.current.partition}:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_prefix}/*"
+        # Host config and the RCON/admin passwords, read fresh on every boot by
+        # pz-config-refresh.sh -- which uses GetParametersByPath to fetch the whole tree
+        # in one call.
+        #
+        # Two things this statement has to get right, both of which failed the first
+        # apply: GetParametersByPath is a distinct action from GetParameter(s), and it
+        # authorizes against the PATH itself, not only the parameters under it. Hence
+        # both ARNs -- the bare prefix and the wildcard.
+        Sid    = "ReadOwnConfigAndSecrets"
+        Effect = "Allow"
+        Action = ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"]
+        Resource = [
+          "arn:${data.aws_partition.current.partition}:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_prefix}",
+          "arn:${data.aws_partition.current.partition}:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_prefix}/*",
+        ]
       },
       {
         Sid      = "DecryptOwnSecrets"
