@@ -35,6 +35,10 @@ monthly_budget_usd = 45
 
 budget_notification_emails = ["joncfrancisco@gmail.com"]
 
+# Flip to true only AFTER pzbot's heartbeat change is deployed and
+# `aws cloudwatch list-metrics --namespace PZ --metric-name BotAlive` returns it.
+enable_bot_heartbeat_alarm = false
+
 # --- DNS ---
 # Shared with foodblog. This stack reads the zone and manages only pz.joncfrancis.co.
 route53_zone_id = "Z02575211T1QV3GILBPJH"

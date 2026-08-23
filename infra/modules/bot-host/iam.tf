@@ -130,6 +130,19 @@ resource "aws_iam_role_policy" "bot" {
         Resource = "*"
       },
       {
+        # The PZ/BotAlive heartbeat, published from the presence loop the bot already
+        # runs. PutMetricData has no resource-level permissions at all, so the namespace
+        # condition is the only way to scope it -- without it this would be a grant to
+        # write any metric in the account.
+        Sid      = "PublishOwnHeartbeat"
+        Effect   = "Allow"
+        Action   = ["cloudwatch:PutMetricData"]
+        Resource = "*"
+        Condition = {
+          StringEquals = { "cloudwatch:namespace" = "PZ" }
+        }
+      },
+      {
         # `/pz cost`. Cost Explorer has no resource-level permissions.
         Sid      = "ReadCost"
         Effect   = "Allow"

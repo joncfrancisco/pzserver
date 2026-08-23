@@ -180,3 +180,15 @@ variable "bot_instance_type" {
   type        = string
   default     = "t4g.nano"
 }
+
+variable "enable_bot_heartbeat_alarm" {
+  description = <<-EOT
+    Alarm when the bot host stops publishing PZ/BotAlive. Keep false until pzbot's
+    heartbeat change is deployed: the alarm treats missing data as breaching (which is
+    the whole point of a heartbeat) and would otherwise page continuously against a
+    metric that does not exist yet. Cross-repo ordering, so it is a flag rather than an
+    assumption.
+  EOT
+  type        = bool
+  default     = false
+}
