@@ -1,0 +1,95 @@
+name: ci
+
+# pzbot lints its installer with the justification "it runs as root on the only host that
+# can reach the game server. Worth linting." By that same standard this repo had the
+# weaker gate and the higher blast radius: eight ops/bin scripts that run as root on a box
+# with no SSH -- one of which decides whether to mkfs the world -- and Terraform that owns
+# every resource in the stack, with no check on either.
+#
+# Nothing here needs AWS credentials. `terraform validate` runs with -backend=false, so it
+# never touches the S3 state or its lock.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          # Matches the floor in versions.tf: 1.10+ for native S3 state locking.
+          terraform_version: "1.13.1"
+          terraform_wrapper: false
+
+      - name: Format
+        run: terraform -chdir=infra fmt -recursive -check -diff
+
+      # Two root modules. bootstrap/ is deliberately separate with local state, and it is
+      # exactly the sort of thing that rots unchecked because nobody runs it twice.
+      - name: Validate the main stack
+        run: |
+          terraform -chdir=infra init -backend=false -input=false
+          terraform -chdir=infra validate
+
+      - name: Validate the bootstrap stack
+        run: |
+          terraform -chdir=infra/bootstrap init -backend=false -input=false
+          terraform -chdir=infra/bootstrap validate
+
+  tflint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: v0.53.0
+      - name: Lint
+        run: |
+          tflint --init
+          tflint --chdir=infra --recursive --minimum-failure-severity=error
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # A syntax error in a unit-invoked script surfaces as a service that will not start,
+      # on a box you have to SSM into to read the journal. `bash -n` is the cheap gate that
+      # catches it here instead.
+      - name: Parse
+        run: |
+          for f in ops/bin/*.sh ops/provision.sh; do
+            bash -n "$f" || exit 1
+          done
+
+      - name: Shellcheck
+        # pz-rcon has no extension: it is the vendored Python RCON client, not shell.
+        run: shellcheck ops/bin/*.sh ops/provision.sh
+
+  line-endings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ops/** is pulled straight onto Linux and run by shebang and systemd's parser, both
+      # of which break on CRLF in ways that are genuinely hard to read: `bad interpreter:
+      # No such file or directory` for a file that is plainly there. .gitattributes pins
+      # it; this is the check that the pin is working.
+      - name: No CRLF under ops/
+        run: |
+          if grep -rlIU $'\r' ops/; then
+            echo "::error::CRLF line endings found under ops/ -- see .gitattributes"
+            exit 1
+          fi
+          echo "ops/ is LF-clean"
