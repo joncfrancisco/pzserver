@@ -3,6 +3,13 @@ Description=PZ scheduled backup (T1 local + T2 S3)
 After=pz-config.service
 Requires=pz-config.service
 
+# Do not even start during a restore or a maintenance window. pz-restore.sh holds this
+# flag for the duration, and a scheduled archive of a world that is mid-swap is worse than
+# no archive at all -- it would also age the good entries out of the six-slot local
+# window. The flock in pz-backup.sh is the belt to this brace, for the case where the flag
+# is set between the condition check and the run.
+ConditionPathExists=!/var/lib/pz/maintenance
+
 [Service]
 Type=oneshot
 ExecStart=/opt/pz/bin/pz-backup.sh scheduled

@@ -72,13 +72,44 @@ fi
 
 # Enforce only the keys the infrastructure depends on. Everything else -- MaxPlayers,
 # PVP, the sandbox knobs -- belongs to the admin and to `/pz config`, and is left alone.
+#
+# NOT sed. This is fed the RCON password, and sed would interpret it twice over: a `|` in
+# the value is a syntax error, and -- worse, because it is silent -- an `&` in the
+# replacement expands to the whole matched text, writing a corrupted password into the
+# .ini. RCON auth then fails, the watchdog counts ten consecutive failures, and the box
+# stops itself with nothing pointing at the cause.
+#
+# Latent rather than live today: DEPLOY.md's rotation command generates from
+# `openssl rand -base64 24 | tr -d '/+='`, which cannot emit any of those characters. It
+# only bites if someone sets the password by hand -- which is exactly the situation where
+# a silent corruption is hardest to connect back to its cause.
+#
+# Same approach pz-start-server.sh already uses for JSON: hand the value to Python as an
+# argument, so nothing in it is ever parsed as syntax.
 set_ini() {
   local key="$1" value="$2"
-  if grep -qE "^${key}=" "$ini"; then
-    sed -i "s|^${key}=.*|${key}=${value}|" "$ini"
-  else
-    printf '%s=%s\n' "$key" "$value" >>"$ini"
-  fi
+  python3 - "$ini" "$key" "$value" <<'PY'
+import sys
+
+path, key, value = sys.argv[1], sys.argv[2], sys.argv[3]
+prefix = key + "="
+with open(path, encoding="utf-8", errors="surrogateescape") as fh:
+    lines = fh.readlines()
+
+replaced = False
+for i, line in enumerate(lines):
+    if line.startswith(prefix):
+        lines[i] = f"{prefix}{value}\n"
+        replaced = True
+        break
+if not replaced:
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    lines.append(f"{prefix}{value}\n")
+
+with open(path, "w", encoding="utf-8", errors="surrogateescape") as fh:
+    fh.writelines(lines)
+PY
 }
 
 set_ini RCONPort 27015

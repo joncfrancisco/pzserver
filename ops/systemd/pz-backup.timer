@@ -3,7 +3,13 @@ Description=Back up the PZ world every 30 minutes while the server is up
 
 [Timer]
 # 30 minutes is the RPO from DESIGN G4. The timer runs regardless of whether anyone is
-# playing; pz-backup.sh short-circuits cheaply when the server is not running.
+# playing, and regardless of whether the server is up: pz-backup.sh archives at rest when
+# the game is down, which is what makes a stopped-instance world still recoverable.
+#
+# It does NOT short-circuit when the server is down -- an earlier version of this comment
+# claimed it did. What stops a scheduled run from archiving a half-restored world is
+# pz-backup.service's ConditionPathExists on the maintenance flag, plus the flock the two
+# scripts share.
 OnBootSec=10min
 OnUnitActiveSec=30min
 AccuracySec=1min
