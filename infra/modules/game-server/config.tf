@@ -20,6 +20,7 @@ locals {
     "config/idle_warn_min"     = tostring(var.idle_warn_minutes)
     "config/idle_timeout_min"  = tostring(var.idle_timeout_minutes)
     "config/session_cap_hours" = tostring(var.session_cap_hours)
+    "config/down_timeout_min"  = tostring(var.down_timeout_minutes)
     "config/backup_bucket"     = var.backup_bucket_name
     "config/alert_topic_arn"   = var.alert_topic_arn
   }

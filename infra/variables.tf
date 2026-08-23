@@ -120,6 +120,24 @@ variable "session_cap_hours" {
   default     = 12
 }
 
+variable "down_timeout_minutes" {
+  description = <<-EOT
+    Minutes the INSTANCE may run with pzserver.service not active before the watchdog
+    stops it. This is the crashed-server case, not the idle case: pzserver.service has
+    StartLimitBurst=3/900s and OOMPolicy=stop, so a crash loop or an OOM kill leaves the
+    unit `failed` and the instance running indefinitely. The start path (SteamCMD, mount,
+    world load) is excluded, and `/var/lib/pz/maintenance` suspends the counter entirely
+    for restores.
+  EOT
+  type        = number
+  default     = 15
+
+  validation {
+    condition     = var.down_timeout_minutes >= 5
+    error_message = "down_timeout_minutes must be at least 5, or a slow start could trip it."
+  }
+}
+
 variable "monthly_budget_usd" {
   description = <<-EOT
     Monthly cap for THIS STACK ONLY (Budgets filtered on the pz:stack tag). This does

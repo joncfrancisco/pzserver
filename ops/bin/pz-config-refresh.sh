@@ -80,6 +80,7 @@ PZ_XMX=${XMX}
 PZ_IDLE_WARN_MIN=$(get idle_warn_min)
 PZ_IDLE_TIMEOUT_MIN=$(get idle_timeout_min)
 PZ_SESSION_CAP_HOURS=$(get session_cap_hours)
+PZ_DOWN_TIMEOUT_MIN=$(get down_timeout_min)
 PZ_BACKUP_BUCKET=$(get backup_bucket)
 PZ_ALERT_TOPIC_ARN=$(get alert_topic_arn)
 PZ_RCON_HOST=127.0.0.1

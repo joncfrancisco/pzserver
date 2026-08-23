@@ -1,0 +1,31 @@
+# The slow, thorough version of pz-update.service: re-checksums every file in the PZ
+# install against the Steam manifest and re-downloads anything that does not match.
+#
+# NOT enabled and NOT wanted by anything -- that is the point. pz-update.service runs on
+# the start path of every session and must stay fast, so `validate` was taken off it (it
+# added a minute or more of billed time to every start to catch a once-a-year problem).
+# This is where that capability went.
+#
+# Run it when the game misbehaves in a way that smells like a bad file -- missing
+# textures, a crash on world load that a restore does not fix, an interrupted update:
+#
+#   sudo systemctl stop pzserver.service
+#   sudo systemctl start pz-update-validate.service   # blocks; watch with journalctl -fu
+#   sudo systemctl start pzserver.service
+#
+# It refuses to run under a live server: SteamCMD rewriting files beneath a running JVM
+# is its own kind of corruption.
+[Unit]
+Description=Validate and repair the Project Zomboid install via SteamCMD (manual, slow)
+After=network-online.target opt-pz-data.mount
+Wants=network-online.target
+Conflicts=pzserver.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=no
+User=pzuser
+Group=pzuser
+TimeoutStartSec=3600
+ExecStart=/usr/games/steamcmd +login anonymous +force_install_dir /opt/pz/server +app_update 380870 validate +quit
+SuccessExitStatus=0 6 7
