@@ -314,7 +314,7 @@ Fixed floor, paid whether or not anybody plays:
 | Bot host EBS, 8 GB gp3 | $0.64 |
 | **Bot host public IPv4** — always-on instance, no NAT, so it needs one | **$3.65** |
 | EBS snapshots (T3): 7 daily incrementals of the data volume | ~$0.50 |
-| S3 backups, ~5 GB with versioning | ~$0.15 |
+| S3 backups, ~5 GB steady state under the 21/180-day lifecycle | ~$0.15 |
 | Route 53 record in the shared zone | $0.00 |
 | **Fixed subtotal** | **~$16.46** |
 
@@ -433,8 +433,9 @@ against `MemTotal`, never against the instance type's marketing number.
 
 This repo provisions the bot's **host, IAM role, security group, SSM parameter paths, and
 alert topic**. It does not contain the bot. The Python — `discord.py`, the command
-surface, the state machine, the single-flight lock — lives in [pzbot](../pzbot) and is not
-yet written.
+surface, the state machine, the single-flight lock — lives in [pzbot](../pzbot) and **is
+written**: v1.0.0, ~3,800 lines, ten test modules, a CI pipeline and an installer. It is
+not yet *deployed* — see [pzbot/DEPLOY.md](../pzbot/DEPLOY.md) for what remains.
 
 Everything the bot needs to configure itself comes out of `terraform output bot_contract`:
 
@@ -457,6 +458,6 @@ Two contracts the bot must honour, both from DESIGN §10:
   RCON answering `players` with a well-formed response — the `PZ/ServerReady` metric, or a
   direct probe. Never announce "server is up" from EC2 state alone.
 
-Until the bot exists, every operation has a manual equivalent in
+Until the bot is deployed, every operation has a manual equivalent in
 [DEPLOY.md](DEPLOY.md#running-it-by-hand-before-the-bot-exists). Phases 1–2 of the rollout
 do not need the bot at all.
