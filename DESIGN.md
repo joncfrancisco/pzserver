@@ -309,7 +309,11 @@ ec2:StartInstances, ec2:StopInstances
   Condition: ec2:ResourceTag/pz:stack == <stack>  AND  ec2:ResourceTag/pz:role == gameserver
 ec2:DescribeInstances, ec2:DescribeInstanceStatus     (Resource: * — Describe* cannot be scoped)
 ssm:SendCommand
-  Resource: the game server instance (same tag condition) + the specific SSM documents
+  Resource: the game server instance + the specific SSM documents
+  Condition: ssm:resourceTag/pz:stack == <stack>  AND  ssm:resourceTag/pz:role == gameserver
+             (NOT ec2:ResourceTag — that key is only populated for ec2:* actions, even
+             against this same instance ARN; using it here denies silently, with no
+             visible link to the tag condition)
 ssm:GetCommandInvocation                              (Resource: *)
 ssm:GetParameter, ssm:GetParametersByPath
   Resource: arn:aws:ssm:*:*:parameter/pz/<stack>/*
@@ -488,7 +492,9 @@ Named here so the boundary is deliberate rather than accidental. Both are natura
 - **Secrets in SSM Parameter Store as SecureString**, fetched at boot by instance role. Never in Terraform state, never in `.tfvars`, never in the AMI, never in a Discord message.
 - **Discord token rotation** is a documented one-command runbook (`put-parameter` + `systemctl restart pzbot`), because tokens do leak and the fix should not require thinking.
 - **Guild and channel allowlists** so a leaked token cannot be used from an attacker's own server.
-- **Command allowlisting** — `/pz config` writes only to an explicit key allowlist. There is no path from a Discord message to arbitrary shell execution on either host. The SSM documents the bot may invoke are individually enumerated in its IAM policy, not wildcarded.
+- **Command allowlisting** — `/pz config` writes only to an explicit key allowlist, `/pz restore` validates the archive name against both a regex and the live S3 listing, and every argument that reaches a command string is `shlex.quote`d.
+
+  ⚠️ **This is enforced by convention in `pzbot`, not by IAM — the distinction matters.** The bot's policy does enumerate rather than wildcard the SSM documents it may invoke, but the one document enumerated is `AWS-RunShellScript`, whose entire purpose is running caller-supplied shell as root. Enumerating it constrains nothing. The code honours the rule carefully and consistently, so this is not an exploitable hole today — but the reachable surface if the Discord token leaks, or if a bug lands in argument handling, is root on the game server rather than the intended handful of operations. Closing it properly means purpose-built `aws_ssm_document`s with typed parameters and `allowedPattern` regexes, tracked as audit finding PZ-05.
 - **Audit channel** captures every state-changing command with actor and outcome.
 - **PZ admin account password** is distinct from the RCON password, which is distinct from anything else. Generated, not chosen.
 

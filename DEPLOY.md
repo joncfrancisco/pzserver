@@ -8,6 +8,65 @@ Everything here assumes the `default` AWS profile in `us-east-1`, and Terraform 
 
 ---
 
+## Outstanding from the 2026-08-22 apply
+
+The stack is live, but three first-time-setup steps below were **not completed**, verified
+against the live account on 2026-08-23. Two of them are guardrails that currently look
+healthy while protecting nothing, which is the worst way for a guardrail to be wrong.
+
+| # | Step | State on 2026-08-23 | Consequence |
+|---|---|---|---|
+| 1 | Activate the `pz:stack` cost allocation tag | **Not active.** `aws ce list-cost-allocation-tags --status Active` returns `[]` | `pz-prod-monthly` reports **$0.00** against a $45 limit and reads healthy. Every day it stays off is spend the budget can never see — activation is not retroactive. |
+| 0 | Raise the account-wide `Safety Net` budget | **Still $25/month**, actual $1.42 | PZ's ~$16.46 fixed floor alone is 66% of it. The first alert will be the wrong one, and foodblog's only cost alarm becomes noise. |
+| — | Quarterly restore drill | Never run | A backup nobody has restored is not a backup. |
+
+### Finish step 1 as soon as AWS will let you
+
+Activation was attempted on 2026-08-23 and AWS refused:
+
+```
+ValidationException: Failed to update Cost Allocation Tag: Tag keys not found: pz:stack.
+```
+
+That is the ordering trap in step 1 below, not a mistake: the resources **are** tagged
+(`aws ec2 describe-tags --filters Name=key,Values=pz:stack` returns 17 of them), but
+Billing only offers a key for activation once it has propagated into the cost-allocation
+registry, which takes up to 24 hours after the tag first appears on a billed resource.
+Retry until it succeeds:
+
+```bash
+aws ce update-cost-allocation-tags-status --cost-allocation-tags-status \
+  'TagKey=pz:stack,Status=Active' 'TagKey=project,Status=Active'
+
+# Then confirm — this is the check that matters, not the command above returning cleanly:
+aws ce list-cost-allocation-tags --status Active \
+  --query 'CostAllocationTags[?TagKey==`pz:stack`]'
+```
+
+A week later, confirm the budget is reporting a real number rather than `$0.00`:
+
+```bash
+aws budgets describe-budgets --account-id 020949219706 \
+  --query 'Budgets[?BudgetName==`pz-prod-monthly`].CalculatedSpend'
+```
+
+### Other live findings from the same pass
+
+Not blocking, but worth knowing — none of these are managed by this stack:
+
+- **No CloudTrail in the account.** `describe-trails` returns nothing. A single-region
+  trail of management events is free and would give a shared account an audit record.
+- **`jon-claude-local` has `AdministratorAccess`** (via the `bots` group), **no MFA**, and
+  **two active access keys** — one created 2026-07-08, one 2026-08-20. That is a long-lived
+  admin credential over a seven-user shared account, and a bigger exposure than anything
+  in the stack itself. Retire the older key and reconsider whether the group needs
+  `AdministratorAccess`.
+- **12 CloudWatch alarms against a 10-alarm free tier**, of which 8 are pre-existing
+  `Spotify*` / `UserData*` / `Users*` DynamoDB alarms unrelated to PZ. Retiring the dead
+  ones would put the account back inside the free tier and make PZ's new alarms free.
+
+---
+
 ## First-time setup
 
 Do these in order. Steps 0–2 are prerequisites; step 3 is what starts the meter.
