@@ -49,10 +49,13 @@ variable "game_instance_type" {
 
 variable "game_xmx" {
   description = <<-EOT
-    JVM max heap for the PZ server, e.g. "12g". Rule of thumb: instance RAM minus ~4 GiB
+    JVM max heap for the PZ server, e.g. "11g". Rule of thumb: instance RAM minus ~4 GiB
     for OS + page cache. The host asserts at boot that this is <= 75% of MemTotal and
     refuses to start otherwise (see ops/bin/pz-preflight.sh) -- leaving this at the JVM
     default is the single most common way to OOM a PZ server with RAM still free (C3).
+
+    Size against MemTotal, not the marketing number: a "16 GiB" m7i.xlarge reports
+    15703 MiB, so the 75% ceiling is 11777 MiB and 12g does not fit.
   EOT
   type        = string
   default     = "12g"

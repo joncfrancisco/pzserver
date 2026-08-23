@@ -61,6 +61,7 @@ DefaultPort=16261
 UDPPort=16262
 Public=false
 PublicName=${PZ_SERVER_NAME}
+UPnP=false
 RCONPort=27015
 RCONPassword=
 Open=true
@@ -84,6 +85,11 @@ set_ini RCONPort 27015
 set_ini RCONPassword "$PZ_RCON_PASSWORD"
 set_ini DefaultPort 16261
 set_ini UDPPort 16262
+# There is no UPnP-capable router in a VPC -- the instance is addressed by an Elastic IP
+# and the security group is the only thing gating traffic. PZ prints
+# "If the server hangs here, set UPnP=false" while it probes for one, which is a startup
+# delay at best and a documented hang at worst. Turn it off.
+set_ini UPnP false
 chmod 0640 "$ini"
 chown pzuser:pzuser "$ini"
 

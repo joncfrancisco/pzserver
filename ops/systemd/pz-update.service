@@ -16,7 +16,11 @@ RemainAfterExit=yes
 User=pzuser
 Group=pzuser
 TimeoutStartSec=1800
-ExecStart=/usr/games/steamcmd +force_install_dir /opt/pz/server +login anonymous +app_update 380870 validate +quit
+# ARGUMENT ORDER IS LOAD-BEARING: +login must come BEFORE +force_install_dir.
+# With force_install_dir first, SteamCMD authenticates fine, then rejects the app with
+# "ERROR! Failed to install app '380870' (Missing configuration)" -- a message that
+# points nowhere near the actual cause.
+ExecStart=/usr/games/steamcmd +login anonymous +force_install_dir /opt/pz/server +app_update 380870 validate +quit
 # A Steam outage must not stop people playing on the build already on disk.
 SuccessExitStatus=0 6 7
 

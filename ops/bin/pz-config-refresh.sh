@@ -91,8 +91,14 @@ PZ_DATA=/opt/pz/data
 AWS_DEFAULT_REGION=${REGION}
 ENVEOF
 
-# 0600 root:root. The RCON password in here is, per DESIGN C7, equivalent to full
-# control of the server.
-install -m 0600 -o root -g root "$tmp" "$ENV_FILE"
+# 0640 root:pzuser -- written by root, readable by the service account and nobody else.
+#
+# It cannot be 0600 root:root: pzserver.service drops to User=pzuser before ExecStart
+# runs, and pz-start-server.sh sources this file. It should not be world-readable
+# either: per DESIGN C7 the RCON password in here is equivalent to full control of the
+# server. Group-reading by pzuser grants that account nothing it does not already have
+# -- the same password is in its own Server/*.ini, and the admin password is on its
+# command line.
+install -m 0640 -o root -g pzuser "$tmp" "$ENV_FILE"
 rm -f "$tmp"
 log "wrote $ENV_FILE for stack=$STACK server=$SERVER_NAME xmx=$XMX"
