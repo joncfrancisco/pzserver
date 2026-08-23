@@ -78,8 +78,9 @@ on the open internet it is a full-control backdoor. Only UDP 16261–16262 faces
 - **The Route 53 zone is a `data` source, never a `resource`.** It is foodblog's — the apex
   and `www` records serve the blog. That one word is what stops `terraform destroy` here
   from taking down `joncfrancis.co`. Do not "clean this up" into a managed zone.
-- **The account-wide `Safety Net` budget ($25/mo) must be raised before applying.** PZ
-  exceeds it permanently and would turn foodblog's only cost alarm into noise. See
+- **The account-wide `Safety Net` budget must be raised before applying** — ✅ done,
+  $25 → $70 on 2026-08-23. PZ exceeds the old limit permanently and would have turned
+  foodblog's only cost alarm into noise. See
   [INFRA.md § Budgets](INFRA.md#budgets-the-collision).
 - **Config goes in SSM, never in `user_data`.** `user_data` runs once (DESIGN C6) and this
   instance is stopped and started for its whole life, so anything baked in at first boot is
