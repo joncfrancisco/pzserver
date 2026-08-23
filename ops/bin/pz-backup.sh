@@ -190,10 +190,29 @@ case "$TRIGGER" in
 esac
 
 log "uploading s3://${PZ_BACKUP_BUCKET}/${KEY} (keep=${KEEP})"
+
+# Upload and tag are two calls, and they have to be. `aws s3 cp` is the high-level
+# command -- it handles multipart for us, which matters as the world grows -- but it has
+# no --tagging option at all. Passing one is not ignored, it is a hard ParamValidation
+# error that fails the whole upload, which is how this shipped broken: the local T1
+# archive was written and T2 silently never happened.
+#
+# `aws s3api put-object` does take --tagging, but it is single-part only. Keeping the
+# high-level copy and tagging afterwards is the trade that stays correct at any size.
 aws s3 cp "$ARCHIVE" "s3://${PZ_BACKUP_BUCKET}/${KEY}" \
   --only-show-errors \
-  --tagging "trigger=${TRIGGER}&keep=${KEEP}" \
   --metadata "trigger=${TRIGGER},server=${PZ_SERVER_NAME},label=${LABEL:-none}"
+
+# Not fatal if it fails. The archive is already safely in S3 by this point, and an
+# untagged object falls through to the lifecycle floor (180 days) rather than
+# disappearing -- which is exactly why that floor rule exists. Losing the retention
+# CLASS is worth a loud warning; losing the backup would be worth dying over, and that
+# is not what this is.
+aws s3api put-object-tagging \
+  --bucket "$PZ_BACKUP_BUCKET" --key "$KEY" \
+  --tagging "TagSet=[{Key=trigger,Value=${TRIGGER}},{Key=keep,Value=${KEEP}}]" \
+  >/dev/null \
+  || log "WARNING: could not tag ${KEY} (keep=${KEEP}); it will expire on the 180-day floor rule instead"
 
 date -u +%s >"$MARKER"
 
