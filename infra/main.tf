@@ -52,6 +52,7 @@ module "game_server" {
   idle_warn_minutes    = var.idle_warn_minutes
   idle_timeout_minutes = var.idle_timeout_minutes
   session_cap_hours    = var.session_cap_hours
+  monthly_budget_usd   = var.monthly_budget_usd
 
   backup_bucket_arn  = module.backups.bucket_arn
   backup_bucket_name = module.backups.bucket_name
