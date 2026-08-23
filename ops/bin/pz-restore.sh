@@ -26,6 +26,12 @@ KEY_ARG="${1:-}"
 CONFIRM="${2:-}"
 ZOMBOID="${PZ_DATA}/Zomboid"
 
+# The watchdog stops the instance if the game unit is not active for DOWN_TIMEOUT
+# minutes -- which a restore looks exactly like. This flag says "the game is down on
+# purpose". It is removed on EVERY exit path, successful or not: a leaked flag would
+# silently disable the cost guarantee for as long as it sat there.
+MAINT_FLAG=/var/lib/pz/maintenance
+
 log() { echo "pz-restore: $*" >&2; }
 die() { log "FATAL: $*"; exit 1; }
 
@@ -71,6 +77,15 @@ PROMPT
   exit 1
 fi
 
+# --- Claim the maintenance window ------------------------------------------------------
+
+# Only after the guards have passed, so a usage error or a missing archive does not
+# briefly suspend the watchdog for nothing.
+install -d -m 0755 /var/lib/pz
+touch "$MAINT_FLAG"
+trap 'rm -f "$MAINT_FLAG"' EXIT
+log "claimed the maintenance window (${MAINT_FLAG}); the watchdog will leave the instance up"
+
 # --- Guard 3: snapshot the present before overwriting it -------------------------------
 
 log "taking a prerestore backup of the current world"
@@ -80,7 +95,9 @@ log "taking a prerestore backup of the current world"
 # --- Fetch and validate ----------------------------------------------------------------
 
 WORK="$(mktemp -d /var/tmp/pz-restore.XXXXXX)"
-trap 'rm -rf "$WORK"' EXIT
+# Replaces the trap set above, so it has to clear the flag too -- a second `trap ... EXIT`
+# does not stack, it overwrites.
+trap 'rm -rf "$WORK"; rm -f "$MAINT_FLAG"' EXIT
 
 log "downloading ${KEY}"
 aws s3 cp "s3://${PZ_BACKUP_BUCKET}/${KEY}" "${WORK}/archive.tar.zst" --only-show-errors

@@ -20,6 +20,9 @@ locals {
     "config/idle_warn_min"     = tostring(var.idle_warn_minutes)
     "config/idle_timeout_min"  = tostring(var.idle_timeout_minutes)
     "config/session_cap_hours" = tostring(var.session_cap_hours)
+    "config/down_timeout_min"  = tostring(var.down_timeout_minutes)
+    "config/backup_bucket"     = var.backup_bucket_name
+    "config/alert_topic_arn"   = var.alert_topic_arn
 
     # Read by the BOT, not by the host -- but it belongs here because /pz/<stack>/config/
     # is the shared config tree both sides read, and splitting it across two prefixes for
@@ -27,8 +30,6 @@ locals {
     # on month-to-date spend against this number (DESIGN section 12's third cost-control
     # layer), so it has to see the same value the Budgets resource was created with.
     "config/monthly_budget_usd" = tostring(var.monthly_budget_usd)
-    "config/backup_bucket"      = var.backup_bucket_name
-    "config/alert_topic_arn"    = var.alert_topic_arn
   }
 }
 

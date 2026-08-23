@@ -17,9 +17,9 @@ players connect to **`pz.joncfrancis.co:16261`**.
 | [`infra/`](infra) | Terraform. Six modules; `infra/bootstrap` creates the state bucket. |
 | [`ops/`](ops) | What runs on the game server: systemd units, backup/restore, the idle watchdog, a vendored RCON client. |
 
-The Discord bot lives in a separate repo, [pzbot](../pzbot), and is not written yet. This
-repo provisions its host, IAM role, and configuration; see
-[INFRA.md § The pzbot handoff](INFRA.md#the-pzbot-handoff).
+The Discord bot lives in a separate repo, [pzbot](../pzbot), and is **written** — v1.0.0,
+~3,800 lines, ten test modules and a CI pipeline. This repo provisions its host, IAM role,
+and configuration; see [INFRA.md § The pzbot handoff](INFRA.md#the-pzbot-handoff).
 
 ## Shape of it
 
@@ -53,9 +53,12 @@ The stack is applied (72 resources) and the full cycle is verified: a bare
 from the AWS console — saves the world on the way down. Backups, metrics and the idle
 watchdog are all running.
 
-**The Discord bot does not exist yet**, so start/stop is by CLI for now — the two commands
+**[pzbot](../pzbot) is written** (v1.0.0, with tests and CI) but **not yet deployed** to
+the bot host — the Discord application's bot user and the six `/pz/prod/discord/*`
+parameters still need creating, and `deploy/install.sh` still needs running. See
+[pzbot/DEPLOY.md](../pzbot/DEPLOY.md). Until then start/stop is by CLI: the two commands
 are in [DEPLOY.md § Running it by hand](DEPLOY.md#running-it-by-hand-before-the-bot-exists).
-Everything the bot will need is in `terraform output bot_contract`.
+Everything the bot needs is in `terraform output bot_contract`.
 
 Cost: **~$41/month** at 4 hours a day, against ~$164 for the same box left running. About
 $16 of that is fixed and paid whether anyone plays or not. The server stops itself after

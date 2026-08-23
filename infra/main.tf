@@ -52,6 +52,7 @@ module "game_server" {
   idle_warn_minutes    = var.idle_warn_minutes
   idle_timeout_minutes = var.idle_timeout_minutes
   session_cap_hours    = var.session_cap_hours
+  down_timeout_minutes = var.down_timeout_minutes
   monthly_budget_usd   = var.monthly_budget_usd
 
   backup_bucket_arn  = module.backups.bucket_arn
@@ -89,6 +90,7 @@ module "observability" {
 
   name_prefix        = local.name_prefix
   stack              = var.stack
+  region             = var.region
   game_instance_id   = module.game_server.instance_id
   data_volume_id     = module.game_server.data_volume_id
   monthly_budget_usd = var.monthly_budget_usd
