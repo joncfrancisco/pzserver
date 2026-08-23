@@ -15,6 +15,7 @@ variable "idle_warn_minutes" { type = number }
 variable "idle_timeout_minutes" { type = number }
 variable "session_cap_hours" { type = number }
 variable "down_timeout_minutes" { type = number }
+variable "monthly_budget_usd" { type = number }
 
 variable "backup_bucket_arn" { type = string }
 variable "backup_bucket_name" { type = string }

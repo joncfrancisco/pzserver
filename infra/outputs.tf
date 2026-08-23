@@ -48,5 +48,10 @@ output "bot_contract" {
     backup_bucket    = module.backups.bucket_name
     alert_topic_arn  = aws_sns_topic.alerts.arn
     metric_namespace = "PZ"
+    # The bot refuses player-tier starts past 100% of this. Also published to Parameter
+    # Store at config/monthly_budget_usd, which is what the bot actually reads -- so the
+    # number can be retuned with a put-parameter instead of a redeploy. This is the
+    # fallback for a fresh install that has no parameter yet.
+    monthly_budget_usd = var.monthly_budget_usd
   }
 }
