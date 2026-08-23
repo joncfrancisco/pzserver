@@ -126,6 +126,15 @@ then the PZ budget cheerfully reports $0.00 spent, which is the most dangerous p
 failure mode for a guardrail: it looks healthy. DEPLOY.md has the activation command and
 a verification step; do not skip it.
 
+The precondition is easy to misread as a failure. Tagging the resources is **not**
+sufficient — 20 resources carry `pz:stack` and activation still returns
+`Tag keys not found`. A tag key only becomes activatable once a **charge carrying that
+tag has posted**, which had not happened as of 2026-08-23 (the stack was created
+2026-08-22/23 and no EC2 or VPC charge has landed yet). So this is a waiting state with a
+specific thing to wait for, not a broken step — see
+[DEPLOY.md § The tag activation is a waiting game](DEPLOY.md#the-tag-activation-is-a-waiting-game--and-here-is-the-thing-to-wait-for)
+for the leading indicator to poll.
+
 ### Networking: no path between them
 
 foodblog runs on **Lightsail**, which sits in its own AWS-managed network outside your

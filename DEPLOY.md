@@ -15,17 +15,51 @@ it is the one that matters most.
 
 | Step | State on 2026-08-23 | Consequence |
 |---|---|---|
-| Activate the `pz:stack` cost allocation tag | **Still not active** after three attempts across two days — AWS returns `Tag keys not found: pz:stack` | `pz-prod-monthly` reports **$0.00** against a $45 limit and reads healthy |
+| Activate the `pz:stack` cost allocation tag | **Still not active** — and *cannot be yet*: no EC2/VPC charge has posted for August, which is the precondition. Not a misconfiguration; see below | `pz-prod-monthly` reports **$0.00** against a $45 limit and reads healthy |
 | Raise the account-wide `Safety Net` budget | ✅ done — now **$70** | — |
 | Discord alert webhook in Parameter Store | ✅ done — relay verified end to end | — |
 | Quarterly restore drill | Never run | A backup nobody has restored is not a backup |
 
-### The tag activation is a waiting game, not a missing step
+### The tag activation is a waiting game — and here is the thing to wait *for*
 
 The resources **are** tagged — `aws ec2 describe-tags --filters Name=key,Values=pz:stack`
-returns 17 of them — but Billing only offers a key for activation once it has propagated
-into the cost-allocation registry, and that has taken longer than the 24 hours the docs
-suggest. Keep retrying:
+returns 20 of them. Billing only offers a key for activation once it has propagated into
+the cost-allocation registry, and this has been read as "taking longer than the 24 hours
+the docs suggest". It isn't. **The precondition is stricter than the docs imply:**
+
+> Tagging a resource is not enough. A tag key becomes activatable only after a **charge
+> carrying that tag posts** to the billing pipeline — and only then does the ~24-hour
+> clock start.
+
+The PZ resources were created **2026-08-22/23**, and as of 2026-08-23 no EC2 or VPC
+charge has posted for August at all:
+
+```bash
+$ aws ce get-cost-and-usage --time-period Start=2026-08-01,End=2026-08-24 \
+    --granularity MONTHLY --metrics UnblendedCost \
+    --filter '{"Dimensions":{"Key":"SERVICE","Values":["Amazon Elastic Compute Cloud - Compute","EC2 - Other","Amazon Virtual Private Cloud"]}}' \
+    --group-by Type=DIMENSION,Key=SERVICE
+(no rows)
+```
+
+So the "three attempts across two days" all landed inside the window where there was
+nothing billed for the tag to attach to. They could not have succeeded. This is a
+**timing** state, not a misconfiguration, and not something to escalate to AWS support.
+
+**Poll the right thing.** Retrying the activation command on a schedule tells you
+nothing until the precondition is met. Check whether EC2 charges have posted first —
+that is the leading indicator, and it moves a day or so before the tag key appears:
+
+```bash
+# 1. Leading indicator: has any EC2/VPC charge posted for this month?
+aws ce get-cost-and-usage --time-period Start=$(date -u +%Y-%m-01),End=$(date -u +%Y-%m-%d) \
+  --granularity MONTHLY --metrics UnblendedCost \
+  --filter '{"Dimensions":{"Key":"SERVICE","Values":["Amazon Elastic Compute Cloud - Compute","EC2 - Other"]}}' \
+  --query 'ResultsByTime[0].Total.UnblendedCost.Amount' --output text
+
+```
+
+**Once that is non-zero**, the tag key should become available within ~24h. Then activate:
 
 ```bash
 aws ce update-cost-allocation-tags-status --cost-allocation-tags-status \
@@ -35,6 +69,10 @@ aws ce update-cost-allocation-tags-status --cost-allocation-tags-status \
 aws ce list-cost-allocation-tags --status Active \
   --query 'CostAllocationTags[?TagKey==`pz:stack`]'
 ```
+
+Because **activation is not retroactive**, the gap between "first charge posts" and "tag
+activated" is spend the budget can never see. That is the reason to watch the leading
+indicator rather than to retry idly — every day of lag is permanently unaccounted.
 
 Until it takes, **pzbot's budget kill-switch is inert by design**. `guards.budget` refuses
 to gate on a `stack_usd` of $0.00 while the account has spent something, because that
