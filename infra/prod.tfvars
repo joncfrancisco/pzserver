@@ -27,6 +27,7 @@ public_server = false
 idle_warn_minutes    = 25
 idle_timeout_minutes = 30
 session_cap_hours    = 12
+down_timeout_minutes = 15
 
 # ~$12.31/mo fixed + ~$24 compute at 4 hr/day = ~$37. 45 leaves headroom before the
 # 100% threshold starts refusing player-tier /pz start.

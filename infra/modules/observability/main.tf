@@ -1,6 +1,8 @@
 # DESIGN section 15. Everything routes to the SNS topic created in the root module; the
 # bot subscribes and mirrors into Discord.
 
+data "aws_partition" "current" {}
+
 locals {
   dims = { Stack = var.stack }
 }
@@ -92,6 +94,55 @@ resource "aws_cloudwatch_metric_alarm" "memory" {
   dimensions = { InstanceId = var.game_instance_id }
 
   alarm_actions = [var.alert_topic_arn]
+}
+
+# --- The backstop behind the watchdog ------------------------------------------------
+
+# pz-watchdog.sh is the cost guarantee, and it now covers both the idle case and the
+# crashed-unit case. This alarm exists for the one failure it cannot cover: the watchdog
+# ITSELF being dead -- a wedged guest, a broken timer, a botched ops deploy. Nothing that
+# runs on the box can detect that, so this is deliberately built only out of things AWS
+# publishes about the instance from the outside.
+#
+# Two things make it safe to give this an automatic stop action:
+#
+#   * CPUUtilization is an AWS/EC2 metric with a native InstanceId dimension. EC2 alarm
+#     actions (arn:aws:automate:...) require that dimension -- they silently do nothing on
+#     a custom metric dimensioned by Stack, which is why this is not an alarm on
+#     PZ/ServerReady despite that being the more obvious metric.
+#   * The window is 13 hours, just past the 12-hour session cap that is the watchdog's own
+#     last line of defence. In normal operation every software guard fires long before
+#     this does, INCLUDING `/pz idle off` (which is bounded by that same session cap), so
+#     this can never stop a box that something else was still managing correctly.
+#
+# What it converts: "an m7i.xlarge billing at $0.2016/hour until somebody reads an email"
+# into "at most 13 hours, once". Missing data means the instance is stopped, which is the
+# normal state and must never page or act.
+resource "aws_cloudwatch_metric_alarm" "runaway_auto_stop" {
+  alarm_name        = "${var.name_prefix}-runaway-auto-stop"
+  alarm_description = "Game instance has been running at near-zero CPU for 13 hours -- past the session cap, so every in-guest guard has failed. Stopping it."
+
+  namespace   = "AWS/EC2"
+  metric_name = "CPUUtilization"
+  dimensions  = { InstanceId = var.game_instance_id }
+
+  statistic           = "Maximum"
+  period              = 3600
+  evaluation_periods  = 13
+  datapoints_to_alarm = 13
+  threshold           = 3
+  comparison_operator = "LessThanThreshold"
+  treat_missing_data  = "notBreaching"
+
+  # Maximum, not Average: one busy five-minute window in an hour is enough to prove
+  # something is alive, and it keeps a mostly-paused-but-healthy server off this path.
+  #
+  # The stop is an ACPI stop, so it still runs pzserver.service's ExecStop and saves the
+  # world on the way down -- the same property that makes a console stop safe (G5).
+  alarm_actions = [
+    "arn:${data.aws_partition.current.partition}:automate:${var.region}:ec2:stop",
+    var.alert_topic_arn,
+  ]
 }
 
 # --- Instance state changes --------------------------------------------------------

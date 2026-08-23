@@ -20,7 +20,15 @@ TimeoutStartSec=1800
 # With force_install_dir first, SteamCMD authenticates fine, then rejects the app with
 # "ERROR! Failed to install app '380870' (Missing configuration)" -- a message that
 # points nowhere near the actual cause.
-ExecStart=/usr/games/steamcmd +login anonymous +force_install_dir /opt/pz/server +app_update 380870 validate +quit
+#
+# NO `validate` HERE, deliberately. `+app_update` already compares the Steam manifest and
+# pulls deltas; `validate` additionally re-checksums every file of a several-gigabyte
+# install against it, which on a gp3 volume at baseline throughput adds a minute or more
+# of billed instance time to the front of EVERY session. All it buys is detection of
+# local file corruption -- a once-a-year problem that was being paid for daily, on the one
+# path the whole design exists to keep short. Run pz-update-validate.service by hand on
+# the day you actually suspect corruption.
+ExecStart=/usr/games/steamcmd +login anonymous +force_install_dir /opt/pz/server +app_update 380870 +quit
 # A Steam outage must not stop people playing on the build already on disk.
 SuccessExitStatus=0 6 7
 
