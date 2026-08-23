@@ -39,9 +39,14 @@ resource "aws_iam_role_policy" "game" {
         # Backups out, and the ops tree in. No s3:DeleteObject: the instance can write
         # backups but cannot remove them, so retention is enforced entirely by the
         # bucket lifecycle policy, which this role also cannot touch.
+        # PutObjectTagging as well as PutObject: pz-backup.sh uploads with
+        # `--tagging keep=short|long`, and supplying tags on a PutObject authorizes
+        # against BOTH actions. Without it the upload fails outright rather than landing
+        # untagged, which is the good failure -- an untagged archive would fall through to
+        # the lifecycle floor instead of its intended retention.
         Sid    = "BackupWriteAndOpsRead"
         Effect = "Allow"
-        Action = ["s3:PutObject", "s3:GetObject"]
+        Action = ["s3:PutObject", "s3:PutObjectTagging", "s3:GetObject"]
         Resource = [
           "${var.backup_bucket_arn}/backups/*",
           "${var.backup_bucket_arn}/ops/*",

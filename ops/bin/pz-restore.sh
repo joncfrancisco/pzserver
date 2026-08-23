@@ -86,6 +86,26 @@ touch "$MAINT_FLAG"
 trap 'rm -f "$MAINT_FLAG"' EXIT
 log "claimed the maintenance window (${MAINT_FLAG}); the watchdog will leave the instance up"
 
+# Shared with pz-backup.sh. The flag above stops pz-backup.service from starting; this
+# stops one that was already running from overlapping the swap below.
+exec 9>/var/lib/pz/backup.lock
+flock -w 900 9 || die "a backup has held /var/lib/pz/backup.lock for 15 minutes; not starting a restore on top of it"
+
+# --- Prune abandoned pre-restore copies -------------------------------------------------
+
+# Every restore moves the current world aside as *.pre-restore-<stamp> and prints an rm
+# for the operator to run later. Nothing ever enforced it, so on a 30 GB volume that
+# already alarms at 85% each forgotten restore was a permanent second copy of an entire
+# world -- and it inflated every subsequent DLM snapshot too.
+#
+# Done here, at the top of the NEXT restore, rather than at the end of this one: keeping
+# the most recent copy is the useful part, and the moment you want it is while the restore
+# you just did is still fresh. Seven days is long enough to notice a bad restore.
+while IFS= read -r -d '' stale; do
+  log "pruning abandoned ${stale##*/} (older than 7 days)"
+  rm -rf "$stale"
+done < <(find "$ZOMBOID" -maxdepth 3 -name '*.pre-restore-*' -mtime +7 -print0 2>/dev/null)
+
 # --- Guard 3: snapshot the present before overwriting it -------------------------------
 
 log "taking a prerestore backup of the current world"

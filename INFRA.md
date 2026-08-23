@@ -230,7 +230,8 @@ failure point on purpose.
 
 **Paths on the box:** PZ install `/opt/pz/server/` (root volume, rebuildable); world
 `/opt/pz/data/Zomboid/` (data volume); scripts `/opt/pz/bin/`; config `/etc/pz/env`;
-watchdog state `/var/lib/pz/`; local backups `/opt/pz/data/backups/`.
+watchdog state `/var/lib/pz/`; local backups `/var/lib/pz/backups/` (on the ROOT volume,
+deliberately — see the comment on `LOCAL_DIR` in `ops/bin/pz-backup.sh`).
 
 **Logs:** `journalctl -u pzserver -f`, `journalctl -u pz-watchdog`, `journalctl -u pz-config`.
 
