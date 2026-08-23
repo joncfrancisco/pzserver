@@ -149,12 +149,16 @@ resource "aws_iam_role_policy" "bot" {
         Action   = ["ce:GetCostAndUsage"]
         Resource = "*"
       },
-      {
-        Sid      = "SubscribeToAlerts"
-        Effect   = "Allow"
-        Action   = ["sns:Subscribe", "sns:Receive", "sns:GetTopicAttributes"]
-        Resource = var.alert_topic_arn
-      },
+      # NO sns:Subscribe. It was granted unconditionally on the topic, so a compromised
+      # bot could have subscribed an attacker-controlled HTTPS endpoint and received every
+      # alarm, state change and budget notification the stack emits -- a quiet, persistent
+      # read on the infrastructure's telemetry.
+      #
+      # It was also never used: it was the vestige of DESIGN section 15's plan to have the
+      # bot mirror SNS into Discord, which was never built and could not have worked
+      # anyway (sg-bot has zero inbound rules, so an SNS HTTPS push has nowhere to land).
+      # modules/alert-relay does that job now, out of band, so the bot has no reason to
+      # touch the topic at all and the statement is gone rather than merely conditioned.
     ]
   })
 }

@@ -12,6 +12,12 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.6"
     }
+    # Zips modules/alert-relay/src into a deployment package at plan time. Keeps the
+    # relay's source readable and reviewable in the repo instead of inlined into HCL.
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
+    }
   }
 }
 
