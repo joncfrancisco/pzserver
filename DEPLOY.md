@@ -60,6 +60,9 @@ Do these in order. Steps 0–2 are prerequisites; step 3 is what starts the mete
 
 ### 0. Before anything: raise the account budget
 
+> ✅ **Already done for the live account** — `Safety Net` is $70 as of 2026-08-23. This
+> step is here for a rebuild into a fresh account; skip it unless the budget reads $25.
+
 **Read [INFRA.md § Budgets: the collision](INFRA.md#budgets-the-collision) first.**
 
 The account has one guardrail — `Safety Net`, **$25/month, account-wide**, alerting at

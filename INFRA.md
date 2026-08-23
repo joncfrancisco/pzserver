@@ -13,6 +13,9 @@
 > [foodblog](../foodblog) (`joncfrancis.co`), `symfal.com`, and several other IAM
 > users and projects. Scope any account-wide reasoning accordingly. Region: **us-east-1**.
 >
+> A one-page map of all three projects in this account lives in
+> [joninfra](https://github.com/joncfrancisco/joninfra).
+>
 > This documents the infrastructure **as built in code**. For the *why*, see
 > [DESIGN.md](DESIGN.md); for step-by-step runbooks, see [DEPLOY.md](DEPLOY.md).
 
@@ -95,9 +98,10 @@ Route 53 bills per hosted zone, and foodblog already pays that $0.50.
 **This is the one place where standing up PZ actively breaks something foodblog relies on,
 and it needs a deliberate decision before `apply`.**
 
-The account already has a budget named **`Safety Net`: $25/month, account-wide (no cost
-filters), one alert at 80% ACTUAL.** Current spend is about **$1.42/month**. It is the
-account's only cost guardrail, and it covers foodblog.
+The account had a budget named **`Safety Net`: $25/month, account-wide (no cost filters),
+one alert at 80% ACTUAL** — the account's only cost guardrail, and the one covering
+foodblog. **It was raised to $70 on 2026-08-23**, before `apply`, exactly as this section
+required; what follows is why.
 
 PZ at ~$41/month blows straight through it, permanently, from the first month. The alert
 would fire every month forever and become noise — which is precisely how the one alarm
@@ -109,11 +113,12 @@ The resolution has two halves:
    creates `pz-prod-monthly`, filtered on the `pz:stack` tag, with 50/80/100% ACTUAL alerts
    plus a FORECASTED alert at 100%. PZ's cost control is about PZ and is independent of
    the account-wide one.
-2. **`Safety Net` must be raised by hand** to a number that still means something with the
-   game server in the account. It is not this stack's resource to own — it predates PZ and
-   protects other projects — so Terraform deliberately does not manage it. The exact
-   command is in [DEPLOY.md](DEPLOY.md#0-before-anything-raise-the-account-budget).
-   **Do this before `apply`**, or the first alert you get will be the wrong one.
+2. **`Safety Net` had to be raised by hand** to a number that still means something with
+   the game server in the account. It is not this stack's resource to own — it predates PZ
+   and protects other projects — so Terraform deliberately does not manage it. ✅ **Done:
+   $25 → $70 on 2026-08-23.** The command is in
+   [DEPLOY.md](DEPLOY.md#0-before-anything-raise-the-account-budget); re-run it if the
+   account's shape changes again.
 
 ⚠️ **The tag filter only works once `pz:stack` is activated as a cost allocation tag** in
 Billing, and activation is **not retroactive** — it applies from activation onward. Until
@@ -388,10 +393,10 @@ against `MemTotal`, never against the instance type's marketing number.
 
 ## Known issues & gotchas
 
-- **`Safety Net` must be raised before `apply`.** The account's only cost guardrail is a
-  $25/month account-wide budget that PZ will exceed permanently. See
-  [Budgets: the collision](#budgets-the-collision). This is the one prerequisite that
-  breaks something if skipped.
+- **`Safety Net` must be raised before `apply`** — ✅ done for this deploy ($25 → $70 on
+  2026-08-23). It is the account's only cost guardrail and PZ would exceed the old limit
+  permanently. See [Budgets: the collision](#budgets-the-collision). Still the one
+  prerequisite that breaks something if skipped on a rebuild into a fresh account.
 - **Cost allocation tags are not retroactive.** The PZ budget filters on `pz:stack`, which
   reports $0.00 until the tag is activated in Billing. A guardrail that reads healthy
   because it is matching nothing is worse than no guardrail.
@@ -434,9 +439,11 @@ against `MemTotal`, never against the instance type's marketing number.
 
 This repo provisions the bot's **host, IAM role, security group, SSM parameter paths, and
 alert topic**. It does not contain the bot. The Python — `discord.py`, the command
-surface, the state machine, the single-flight lock — lives in [pzbot](../pzbot) and **is
-written**: v1.0.0, ~3,800 lines, ten test modules, a CI pipeline and an installer. It is
-not yet *deployed* — see [pzbot/DEPLOY.md](../pzbot/DEPLOY.md) for what remains.
+surface, the state machine, the single-flight lock — lives in [pzbot](../pzbot): v1.0.0,
+~3,800 lines, ten test modules, a CI pipeline and an installer. **It is deployed and
+running** — `pzbot.service` on the bot host has been `active (running)` and `enabled`
+since 2026-08-23, so the two repos are no longer out of step. See
+[pzbot/DEPLOY.md](../pzbot/DEPLOY.md) for upgrades and rotation.
 
 Everything the bot needs to configure itself comes out of `terraform output bot_contract`:
 
