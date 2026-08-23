@@ -35,9 +35,12 @@ monthly_budget_usd = 45
 
 budget_notification_emails = ["joncfrancisco@gmail.com"]
 
-# Flip to true only AFTER pzbot's heartbeat change is deployed and
-# `aws cloudwatch list-metrics --namespace PZ --metric-name BotAlive` returns it.
-enable_bot_heartbeat_alarm = false
+# Enabled 2026-08-23, once pzbot was deployed and confirmed publishing PZ/BotAlive
+# (10 datapoints in 10 minutes, one per minute from the presence loop). The gate existed
+# only for the cross-repo ordering: the alarm is here and the metric is in pzbot, and
+# because a heartbeat alarm must treat missing data as breaching, applying it first would
+# have paged continuously against a metric that did not exist yet.
+enable_bot_heartbeat_alarm = true
 
 # --- DNS ---
 # Shared with foodblog. This stack reads the zone and manages only pz.joncfrancis.co.
