@@ -7,9 +7,11 @@ time. Lives in the **shared** AWS account `020949219706` alongside
 [foodblog](../foodblog), and shares its Route 53 zone: players connect to
 `pz.joncfrancis.co:16261`.
 
-**Nothing is deployed yet.** The stack validates and plans cleanly against live AWS but
-has never been applied. Treat `terraform apply` as an action that starts billing and needs
-the user's explicit go-ahead.
+**The stack is LIVE** in account `020949219706` as of 2026-08-22 — 72 resources, and
+billing is running (~$16/mo fixed plus ~$0.20 per hour the game server is up). The game
+server is normally **stopped**; the bot host is always on. `terraform apply` now changes
+production, so it needs the user's explicit go-ahead — as does anything that starts the
+game server. `plan` and `validate` remain free and safe.
 
 ## Stack & Commands
 Terraform ≥ 1.10 (native S3 state locking — no DynamoDB table) · AWS provider ~> 6.0 ·
