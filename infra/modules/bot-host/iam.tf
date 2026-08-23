@@ -60,10 +60,16 @@ resource "aws_iam_role_policy" "bot" {
         Effect   = "Allow"
         Action   = ["ssm:SendCommand"]
         Resource = "arn:${data.aws_partition.current.partition}:ec2:${var.region}:${data.aws_caller_identity.current.account_id}:instance/*"
+        # `ssm:resourceTag`, not `ec2:ResourceTag`. Condition keys are populated per the
+        # calling service's action namespace, not per the resource type -- `ec2:*`
+        # actions (StartInstances/StopInstances above) get `ec2:ResourceTag`, but calling
+        # `ssm:SendCommand` against this same EC2 instance ARN only populates
+        # `ssm:resourceTag`. Getting this wrong doesn't warn or degrade; it denies the
+        # call outright with no visible connection to the tag condition at all.
         Condition = {
           StringEquals = {
-            "ec2:ResourceTag/pz:stack" = var.stack
-            "ec2:ResourceTag/pz:role"  = "gameserver"
+            "ssm:resourceTag/pz:stack" = var.stack
+            "ssm:resourceTag/pz:role"  = "gameserver"
           }
         }
       },

@@ -309,7 +309,11 @@ ec2:StartInstances, ec2:StopInstances
   Condition: ec2:ResourceTag/pz:stack == <stack>  AND  ec2:ResourceTag/pz:role == gameserver
 ec2:DescribeInstances, ec2:DescribeInstanceStatus     (Resource: * — Describe* cannot be scoped)
 ssm:SendCommand
-  Resource: the game server instance (same tag condition) + the specific SSM documents
+  Resource: the game server instance + the specific SSM documents
+  Condition: ssm:resourceTag/pz:stack == <stack>  AND  ssm:resourceTag/pz:role == gameserver
+             (NOT ec2:ResourceTag — that key is only populated for ec2:* actions, even
+             against this same instance ARN; using it here denies silently, with no
+             visible link to the tag condition)
 ssm:GetCommandInvocation                              (Resource: *)
 ssm:GetParameter, ssm:GetParametersByPath
   Resource: arn:aws:ssm:*:*:parameter/pz/<stack>/*
