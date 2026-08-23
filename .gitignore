@@ -24,3 +24,6 @@ secrets.tfvars
 *.pem
 .env
 .env.*
+
+# Lambda deployment packages, built at plan time by data.archive_file.
+infra/modules/*/.build/

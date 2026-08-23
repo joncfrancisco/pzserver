@@ -86,6 +86,16 @@ module "dns" {
   target_ip = module.game_server.public_ip
 }
 
+module "alert_relay" {
+  source = "./modules/alert-relay"
+
+  name_prefix       = local.name_prefix
+  stack             = var.stack
+  region            = var.region
+  alert_topic_arn   = aws_sns_topic.alerts.arn
+  webhook_parameter = "${local.ssm_prefix}/discord/alert_webhook"
+}
+
 module "observability" {
   source = "./modules/observability"
 
