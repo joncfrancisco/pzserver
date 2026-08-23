@@ -53,6 +53,17 @@ resource "aws_instance" "game" {
   # the world. This is the mechanism behind G5.
   instance_initiated_shutdown_behavior = "stop"
 
+  # The world itself is safe without this: the data volume is prevent_destroy and its
+  # attachment leaves DeleteOnTermination at the default of false. What a termination
+  # would take is the root volume, the provisioned state, and an afternoon. This is a
+  # SHARED account with seven IAM users and console access, so the same reasoning that
+  # justified prevent_destroy one layer down applies here, and it is free.
+  #
+  # It does not impede any normal operation -- stop/start is unaffected, and the bot has
+  # no ec2:TerminateInstances at all. A deliberate teardown clears it first; see
+  # DEPLOY.md "Tearing the stack down".
+  disable_api_termination = true
+
   metadata_options {
     http_tokens                 = "required" # IMDSv2 only
     http_endpoint               = "enabled"
