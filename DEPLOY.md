@@ -8,64 +8,51 @@ Everything here assumes the `default` AWS profile in `us-east-1`, and Terraform 
 
 ---
 
-## Outstanding from the 2026-08-22 apply
+## Outstanding after the 2026-08-23 remediation deploy
 
-The stack is live, but three first-time-setup steps below were **not completed**, verified
-against the live account on 2026-08-23. Two of them are guardrails that currently look
-healthy while protecting nothing, which is the worst way for a guardrail to be wrong.
+The audit remediation is applied and verified. One prerequisite is still outstanding, and
+it is the one that matters most.
 
-| # | Step | State on 2026-08-23 | Consequence |
-|---|---|---|---|
-| 1 | Activate the `pz:stack` cost allocation tag | **Not active.** `aws ce list-cost-allocation-tags --status Active` returns `[]` | `pz-prod-monthly` reports **$0.00** against a $45 limit and reads healthy. Every day it stays off is spend the budget can never see — activation is not retroactive. |
-| 0 | Raise the account-wide `Safety Net` budget | **Still $25/month**, actual $1.42 | PZ's ~$16.46 fixed floor alone is 66% of it. The first alert will be the wrong one, and foodblog's only cost alarm becomes noise. |
-| — | Quarterly restore drill | Never run | A backup nobody has restored is not a backup. |
+| Step | State on 2026-08-23 | Consequence |
+|---|---|---|
+| Activate the `pz:stack` cost allocation tag | **Still not active** after three attempts across two days — AWS returns `Tag keys not found: pz:stack` | `pz-prod-monthly` reports **$0.00** against a $45 limit and reads healthy |
+| Raise the account-wide `Safety Net` budget | ✅ done — now **$70** | — |
+| Discord alert webhook in Parameter Store | ✅ done — relay verified end to end | — |
+| Quarterly restore drill | Never run | A backup nobody has restored is not a backup |
 
-### Finish step 1 as soon as AWS will let you
+### The tag activation is a waiting game, not a missing step
 
-Activation was attempted on 2026-08-23 and AWS refused:
-
-```
-ValidationException: Failed to update Cost Allocation Tag: Tag keys not found: pz:stack.
-```
-
-That is the ordering trap in step 1 below, not a mistake: the resources **are** tagged
-(`aws ec2 describe-tags --filters Name=key,Values=pz:stack` returns 17 of them), but
-Billing only offers a key for activation once it has propagated into the cost-allocation
-registry, which takes up to 24 hours after the tag first appears on a billed resource.
-Retry until it succeeds:
+The resources **are** tagged — `aws ec2 describe-tags --filters Name=key,Values=pz:stack`
+returns 17 of them — but Billing only offers a key for activation once it has propagated
+into the cost-allocation registry, and that has taken longer than the 24 hours the docs
+suggest. Keep retrying:
 
 ```bash
 aws ce update-cost-allocation-tags-status --cost-allocation-tags-status \
   'TagKey=pz:stack,Status=Active' 'TagKey=project,Status=Active'
 
-# Then confirm — this is the check that matters, not the command above returning cleanly:
+# The check that matters — not the command above exiting 0:
 aws ce list-cost-allocation-tags --status Active \
   --query 'CostAllocationTags[?TagKey==`pz:stack`]'
 ```
 
-A week later, confirm the budget is reporting a real number rather than `$0.00`:
+Until it takes, **pzbot's budget kill-switch is inert by design**. `guards.budget` refuses
+to gate on a `stack_usd` of $0.00 while the account has spent something, because that
+figure is fictional rather than zero. So the tag is not just a reporting nicety — it is
+what switches PZ-08 on.
 
-```bash
-aws budgets describe-budgets --account-id 020949219706 \
-  --query 'Budgets[?BudgetName==`pz-prod-monthly`].CalculatedSpend'
-```
+### Account-level items, recorded rather than changed
 
-### Other live findings from the same pass
+Not owned by this stack:
 
-Not blocking, but worth knowing — none of these are managed by this stack:
-
-- **No CloudTrail in the account.** `describe-trails` returns nothing. A single-region
-  trail of management events is free and would give a shared account an audit record.
-- **`jon-claude-local` has `AdministratorAccess`** (via the `bots` group), **no MFA**, and
-  **two active access keys** — one created 2026-07-08, one 2026-08-20. That is a long-lived
-  admin credential over a seven-user shared account, and a bigger exposure than anything
-  in the stack itself. Retire the older key and reconsider whether the group needs
-  `AdministratorAccess`.
-- **12 CloudWatch alarms against a 10-alarm free tier**, of which 8 are pre-existing
-  `Spotify*` / `UserData*` / `Users*` DynamoDB alarms unrelated to PZ. Retiring the dead
-  ones would put the account back inside the free tier and make PZ's new alarms free.
-
----
+- **No CloudTrail** anywhere in the account. A single-region trail of management events is
+  free and would give a shared account an audit record.
+- **`jon-claude-local` holds `AdministratorAccess`** via the `bots` group, with **no MFA**
+  and **two active access keys** (2026-07-08 and 2026-08-20). Bigger exposure than
+  anything in the stack itself.
+- **13 CloudWatch alarms against a 10-alarm free tier.** Seven are PZ's; the rest are
+  pre-existing `Spotify*` / `UserData*` / `Users*` DynamoDB alarms. Retiring the dead ones
+  would put the account back inside the free tier.
 
 ## First-time setup
 
@@ -350,6 +337,13 @@ The `prevent_destroy` guards apply to the drill stack too — see
 Anything under [`ops/`](ops) ships in two steps: Terraform re-uploads it to S3, then the
 box re-runs the (idempotent) provisioner.
 
+⚠️ **This restarts the game server if it is running.** `provision.sh` restarts
+`pz-config.service`, and `pzserver.service` has `Requires=` on it, so systemd propagates
+the restart. It is safe — `ExecStop` saves the world first — but anyone playing is
+disconnected, and an RCON call in flight will fail. Prefer re-provisioning with the world
+down. If you must do it live, expect one `RCON unreachable (1/10)` line from the watchdog
+while the server comes back; that is the bounce, not a fault.
+
 ```bash
 terraform -chdir=infra apply -var-file=prod.tfvars      # re-uploads ops/ to s3://…/ops/
 
@@ -476,3 +470,51 @@ terraform -chdir=infra destroy -var-file=prod.tfvars \
 To rebuild afterwards: `terraform apply`, then restore the final archive per
 [Restore](#restore). That is [G6](DESIGN.md#goals) — with the guard removal as an explicit
 first step rather than the one-liner the design implies.
+
+---
+
+## Deployment log
+
+Trimmed deliberately — keep entries that change what a future run should *do*, and fold
+anything durable up into the step it belongs to.
+
+### 2026-08-23 — audit remediation (PZ-01 … PZ-21)
+
+**Re-provisioning restarts the game server.** `provision.sh` runs
+`systemctl restart pz-config.service`, and `pzserver.service` has `Requires=` on it, so
+the restart propagates. Observed live: an RCON save failed mid-bounce and the watchdog
+logged `RCON unreachable (1/10 consecutive)` before the server came back. It is *safe* —
+`ExecStop` saves the world on the way down — but it is not free, and it will disconnect
+anyone playing. Re-provision with the world down unless you mean to bounce it.
+
+**`aws s3 cp` has no `--tagging`, and an unknown option is fatal.** Shipped broken in
+PZ-02: the CLI raised `ParamValidation: Unknown options: --tagging`, `set -e` killed the
+script, and T2 uploads silently stopped while T1 kept working. Fixed by tagging in a
+second `aws s3api put-object-tagging` call. The lesson generalises: after any change to
+`pz-backup.sh`, verify the object actually **arrives**, not just that the script logs an
+upload line.
+
+```bash
+sudo /opt/pz/bin/pz-backup.sh manual verify
+KEY=$(aws s3api list-objects-v2 --bucket $(terraform -chdir=infra output -raw backup_bucket) \
+  --prefix backups/prod/ --query 'sort_by(Contents,&LastModified)[-1].Key' --output text)
+aws s3api get-object-tagging --bucket $(terraform -chdir=infra output -raw backup_bucket) --key "$KEY"
+# expect keep=short for scheduled, keep=long for prestop/prerestore/manual
+```
+
+**CI does not catch a missing provider in `.terraform.lock.hcl`.** `terraform init
+-backend=false` *adds* a missing provider to the lockfile rather than failing, so
+`hashicorp/archive` sat in `versions.tf` unlocked and green through CI. Catching it needs
+`-lockfile=readonly` in the workflow. Worth doing.
+
+**A PR retargeted to a feature branch does not follow that branch to `main`.** #10 was
+based on `fix/cost-guarantee` to resolve a conflict; #4 merged to `main` at 07:16, #10
+merged into the now-orphaned `fix/cost-guarantee` at 07:17, and the change never reached
+`main`. GitHub only auto-retargets when the base branch is *deleted* on merge. Caught only
+because the pre-deploy plan was one resource short of the rehearsal. **Enable
+auto-delete-branch on merge**, or keep stacked PRs based on `main` and resolve conflicts
+at merge time.
+
+**Two Terraform stacks.** `infra/bootstrap` has its own local state and does not travel
+with the main apply. It is easy to forget because nothing references it.
+
