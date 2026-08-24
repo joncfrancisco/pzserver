@@ -453,6 +453,40 @@ sudo systemctl restart pzserver.service
 
 Then restart the bot so it picks up the new value.
 
+### Rotating the admin password
+
+`pz-start-server.sh` passes `-adminpassword` **only when there is no server database
+yet**, because that flag lands in `/proc/<pid>/cmdline`, which is world-readable — any
+local user can `ps` it out of a running server. Once PZ has seeded the admin account it
+authenticates against the DB, so the flag is redundant and the exposure buys nothing.
+
+That means changing the SSM parameter alone does **not** change the live password. Say so
+explicitly for one run:
+
+```bash
+aws ssm put-parameter --name /pz/prod/admin_password --type SecureString --overwrite \
+  --value "$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)"
+
+# On the box: re-render /etc/pz/env, then start ONCE with the override.
+sudo systemctl restart pz-config.service
+sudo systemctl stop pzserver.service
+sudo systemctl set-environment PZ_FORCE_ADMIN_PASSWORD=1
+sudo systemctl start pzserver.service
+sudo systemctl unset-environment PZ_FORCE_ADMIN_PASSWORD   # ← do not skip this
+```
+
+⚠️ **Unset it immediately after.** Leaving it set silently reinstates the world-readable
+exposure on every subsequent boot, which is the state this design exists to avoid. The
+password is visible in `ps` for the lifetime of that one run — rotate when nobody
+untrusted has a shell on the box.
+
+To confirm it took, check that the flag is absent on the *next* ordinary start:
+
+```bash
+sudo tr '\0' ' ' < "/proc/$(pgrep -f ProjectZomboid64 | head -1)/cmdline" | grep -c adminpassword
+# 0 = the flag is not being passed, which is the desired steady state
+```
+
 ### Rotating the Discord token
 
 ```bash

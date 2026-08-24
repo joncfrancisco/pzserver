@@ -43,10 +43,42 @@ fi
 
 cd "$SERVER_DIR"
 
+# PZ takes the admin password as a command-line flag, and the stock launcher passes it
+# straight through to the java process -- where it lands in /proc/<pid>/cmdline, which is
+# WORLD-READABLE. `ps aux` on this box printed the live admin password in full. Anything
+# that gets as far as an unprivileged local user (a malicious mod, an RCE in the game, a
+# second service running as nobody) reads it for free.
+#
+# Note the value being in /etc/pz/env is NOT the same exposure: /proc/<pid>/environ is
+# 0400 and readable only by the process owner and root. The flag is the leak, not the
+# variable -- so the fix is to stop passing the flag, not to stop exporting the value.
+#
+# PZ only needs -adminpassword to SEED the admin account into the server database on the
+# first run. Once the account exists it authenticates against the DB and the flag is
+# redundant, so paying a permanent world-readable exposure on every start buys nothing.
+# Pass it only when there is no database yet, and make re-applying it an explicit,
+# deliberate act (below) rather than the default.
+admin_args=()
+db="${PZ_DATA}/Zomboid/db/${PZ_SERVER_NAME}.db"
+
+if [[ ! -s "$db" ]]; then
+  echo "pz-start: no server DB at ${db} -- seeding the admin account on this run" >&2
+  admin_args=(-adminpassword "${PZ_ADMIN_PASSWORD}")
+elif [[ "${PZ_FORCE_ADMIN_PASSWORD:-0}" == "1" ]]; then
+  # The rotation path. DEPLOY.md documents this as a one-shot: set it, start, unset it.
+  # Leaving it set would quietly reinstate the exposure on every subsequent boot, which
+  # is exactly the state this change exists to get out of.
+  echo "pz-start: PZ_FORCE_ADMIN_PASSWORD=1 -- re-applying the admin password this run" >&2
+  admin_args=(-adminpassword "${PZ_ADMIN_PASSWORD}")
+fi
+
 # -cachedir belt-and-braces with the ~/Zomboid symlink provision.sh creates: either one
 # alone puts the world on the data volume, and having both means a broken symlink or an
 # unexpected launcher change cannot silently write a fresh world onto the root disk.
+#
+# "${admin_args[@]}" on an empty array is safe under `set -u` on bash >= 4.4; this box
+# runs 5.2.
 exec ./start-server.sh \
   -cachedir="${PZ_DATA}/Zomboid" \
   -servername "${PZ_SERVER_NAME}" \
-  -adminpassword "${PZ_ADMIN_PASSWORD}"
+  "${admin_args[@]}"
