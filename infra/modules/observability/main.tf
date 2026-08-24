@@ -79,17 +79,35 @@ resource "aws_cloudwatch_metric_alarm" "disk" {
 
 # Early warning that it is time to move to r7i.xlarge (DESIGN C3: B42 memory use grows
 # with explored area and uptime, not just player count).
+#
+# This watches mem_AVAILABLE_percent, not mem_used_percent, and that is not a stylistic
+# choice -- on this workload the "used" metric cannot cross 90% no matter how close the
+# box is to OOM. PZ's JVM allocates its heap through a memfd (/memfd:java_heap, ~11 GB),
+# so the heap is accounted as Shmem, which lands inside /proc/meminfo's Cached. The
+# agent computes used% as (Total - Free - Buffers - Cached)/Total, so it subtracts the
+# entire heap and reports ~9% while MemAvailable says the box is 82% spoken for.
+# Reaching 90% used would take ~14.5 GB of non-shmem memory on a host that has ~4.5 GB
+# outside the heap -- it would OOM first, silently, with this alarm sitting at OK.
+#
+# MemAvailable is the kernel's own estimate and correctly excludes non-reclaimable
+# shmem, so it is the only one of the two that tracks reality here.
 resource "aws_cloudwatch_metric_alarm" "memory" {
-  alarm_name          = "${var.name_prefix}-memory-high"
-  alarm_description   = "Memory above 90% for 15 minutes -- consider r7i.xlarge."
+  alarm_name          = "${var.name_prefix}-memory-low-available"
+  alarm_description   = "Less than 10% of memory available for 15 minutes -- consider r7i.xlarge."
   namespace           = "CWAgent"
-  metric_name         = "mem_used_percent"
+  metric_name         = "mem_available_percent"
   statistic           = "Average"
   period              = 300
   evaluation_periods  = 3
-  threshold           = 90
-  comparison_operator = "GreaterThanThreshold"
-  treat_missing_data  = "notBreaching"
+  threshold           = 10
+  comparison_operator = "LessThanThreshold"
+
+  # Same reasoning as the other alarms: the instance is stopped by default, so missing
+  # data is the normal state and must not page anyone. Note this is exactly what let the
+  # alarm sit at OK for two days while the agent was 403ing -- "no data" and "healthy"
+  # are indistinguishable here by design. Detecting a mute agent needs its own signal,
+  # not a treat_missing_data flag that would cry wolf on every stopped instance.
+  treat_missing_data = "notBreaching"
 
   dimensions = { InstanceId = var.game_instance_id }
 
