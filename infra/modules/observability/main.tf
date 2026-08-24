@@ -1,5 +1,11 @@
-# DESIGN section 15. Everything routes to the SNS topic created in the root module; the
-# bot subscribes and mirrors into Discord.
+# DESIGN section 15. Two destinations, both created in the root module (infra/alerts.tf):
+# the SNS topic for emergencies, which reaches email and Discord, and the audit log group
+# for everything else, which reaches nobody until asked.
+#
+# When adding an alarm here, the question is not "is this worth recording?" -- everything
+# is recorded, automatically, by the audit_alarm_state rule below. The question is only
+# whether it is worth WAKING SOMEONE UP for. If it is not, give it no alarm_actions at
+# all and it will still show up in `bin/pz-audit.sh`.
 
 data "aws_partition" "current" {}
 
@@ -28,8 +34,11 @@ resource "aws_cloudwatch_metric_alarm" "not_ready" {
   # normal state. Missing data must not page anyone.
   treat_missing_data = "notBreaching"
 
+  # No ok_actions. Every ALARM here is followed by an OK -- either the server finished
+  # loading or someone restarted it -- so recovery notices doubled the volume of this
+  # alarm while telling nobody anything they could act on. The OK transition is still
+  # recorded by audit_alarm_state and shows up in `pz-audit`.
   alarm_actions = [var.alert_topic_arn]
-  ok_actions    = [var.alert_topic_arn]
 }
 
 # A backup that quietly stopped running is indistinguishable from a backup that is
@@ -163,15 +172,53 @@ resource "aws_cloudwatch_metric_alarm" "runaway_auto_stop" {
   ]
 }
 
-# --- Instance state changes --------------------------------------------------------
+# --- The audit trail ----------------------------------------------------------------
+
+# Everything that happens gets recorded here; only emergencies are allowed to interrupt
+# anyone. That split is the whole point of this section.
+#
+# The original design routed every signal to SNS, and SNS has both an email subscription
+# and the Discord relay on it. So a completely healthy two-hour session -- start, world
+# load, players leave, idle warning, save, stop -- produced six emails and six Discord
+# messages, none of which anyone can act on. An alert channel like that gets muted, and a
+# muted channel cannot deliver the one message that matters ("STOP FAILED -- it is still
+# billing"). Alarm fatigue on a $0.20/hour instance is the expensive failure.
+#
+# EventBridge writes straight to the log group: no SNS, no Lambda, nothing to page. It
+# also captures strictly MORE than the old setup -- every alarm transition including OK
+# and INSUFFICIENT_DATA, which previously only existed as email nobody kept.
+# Every alarm transition for this stack, ALARM and OK alike. This is what `pz-audit`
+# reads to answer "what actually happened last night" without anyone having been paged.
+resource "aws_cloudwatch_event_rule" "audit_alarm_state" {
+  name        = "${var.name_prefix}-audit-alarm-state"
+  description = "Record every pz alarm state transition to the audit log. Never pages."
+
+  event_pattern = jsonencode({
+    source        = ["aws.cloudwatch"]
+    "detail-type" = ["CloudWatch Alarm State Change"]
+    detail = {
+      alarmName = [{ prefix = var.name_prefix }]
+    }
+  })
+}
+
+resource "aws_cloudwatch_event_target" "audit_alarm_state" {
+  rule      = aws_cloudwatch_event_rule.audit_alarm_state.name
+  target_id = "audit-log"
+  arn       = var.audit_log_group_arn
+}
+
+# --- Instance state changes ----------------------------------------------------------
 
 # The box can be stopped from four places: Discord, the console, the idle watchdog, and
-# AWS itself (retirement or capacity). This makes every one of them visible. It is the
-# only way to notice an instance retirement, which is the failure that looks exactly
-# like a normal stop until someone asks why the server went down at 3am.
+# AWS itself (retirement or capacity). All four are recorded; see below for the one that
+# also pages.
+#
+# start/stop is the NORMAL operating rhythm of this stack -- the instance is stopped by
+# default and that is the entire cost model -- so routine transitions are audit-only.
 resource "aws_cloudwatch_event_rule" "state_change" {
   name        = "${var.name_prefix}-instance-state-change"
-  description = "Any stop/start of the PZ game server, whoever caused it."
+  description = "Any stop/start of the PZ game server, whoever caused it. Audit only."
 
   event_pattern = jsonencode({
     source        = ["aws.ec2"]
@@ -183,8 +230,32 @@ resource "aws_cloudwatch_event_rule" "state_change" {
   })
 }
 
-resource "aws_cloudwatch_event_target" "state_change_sns" {
+resource "aws_cloudwatch_event_target" "state_change_audit" {
   rule      = aws_cloudwatch_event_rule.state_change.name
+  target_id = "audit-log"
+  arn       = var.audit_log_group_arn
+}
+
+# The one instance transition that is never routine. Nothing in this stack terminates the
+# game server -- the watchdog stops it, `/pz stop` stops it -- so `terminated` means
+# either an AWS retirement or somebody in the console, and the world volume's
+# prevent_destroy is the only thing standing between that and a lost save.
+resource "aws_cloudwatch_event_rule" "terminated" {
+  name        = "${var.name_prefix}-instance-terminated"
+  description = "Game server TERMINATED -- never normal for this stack. Pages."
+
+  event_pattern = jsonencode({
+    source        = ["aws.ec2"]
+    "detail-type" = ["EC2 Instance State-change Notification"]
+    detail = {
+      "instance-id" = [var.game_instance_id]
+      state         = ["terminated"]
+    }
+  })
+}
+
+resource "aws_cloudwatch_event_target" "terminated_sns" {
+  rule      = aws_cloudwatch_event_rule.terminated.name
   target_id = "sns"
   arn       = var.alert_topic_arn
 }
@@ -215,15 +286,20 @@ resource "aws_budgets_budget" "stack" {
     values = [format("user:pz:stack$%s", var.stack)]
   }
 
-  dynamic "notification" {
-    for_each = [50, 80, 100]
-    content {
-      comparison_operator       = "GREATER_THAN"
-      threshold                 = notification.value
-      threshold_type            = "PERCENTAGE"
-      notification_type         = "ACTUAL"
-      subscriber_sns_topic_arns = [var.alert_topic_arn]
-    }
+  # 100% only. The 50% and 80% thresholds were pure noise: they fire predictably every
+  # month on a stack whose whole design is to spend money when someone plays, and neither
+  # one is a state anybody acts on. Budgets can only notify SNS or email -- there is no
+  # EventBridge target -- so the quiet option is not to subscribe them at all.
+  #
+  # This loses nothing, because `pz-audit` reports month-to-date spend against the limit
+  # on demand, which beats a threshold email: it tells you the number whenever you ask
+  # rather than only at the two moments AWS chose.
+  notification {
+    comparison_operator       = "GREATER_THAN"
+    threshold                 = 100
+    threshold_type            = "PERCENTAGE"
+    notification_type         = "ACTUAL"
+    subscriber_sns_topic_arns = [var.alert_topic_arn]
   }
 
   # Forecast-based, so the 100% ACTUAL stop is a backstop rather than the first warning.

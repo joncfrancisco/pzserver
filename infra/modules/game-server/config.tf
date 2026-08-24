@@ -24,6 +24,10 @@ locals {
     "config/backup_bucket"     = var.backup_bucket_name
     "config/alert_topic_arn"   = var.alert_topic_arn
 
+    # The watchdog writes routine events (why a session ended, idle warnings) here
+    # instead of paging about them. See infra/alerts.tf for the split.
+    "config/audit_log_group" = var.audit_log_group_name
+
     # Read by the BOT, not by the host -- but it belongs here because /pz/<stack>/config/
     # is the shared config tree both sides read, and splitting it across two prefixes for
     # the sake of module tidiness would be worse. The bot gates player-tier `/pz start`

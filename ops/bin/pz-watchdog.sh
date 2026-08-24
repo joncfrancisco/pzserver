@@ -87,11 +87,57 @@ start_in_progress() {
   return 1
 }
 
+# Two channels, and choosing between them is the point.
+#
+# notify()  -- wakes someone up. Reserve it for states a human must act on: the server is
+#              dead, or it is billing and will not stop.
+# audit()   -- writes to CloudWatch Logs and reaches nobody. Everything else.
+#
+# Before this split every one of these went to SNS, which fans out to email AND Discord.
+# A normal session ends with an idle warning and a shutdown notice, so two of the four
+# messages below fired on every single healthy session. That is how an alert channel
+# becomes background noise, and a channel nobody reads cannot deliver "STOP FAILED".
 notify() {
   [[ -n "${PZ_ALERT_TOPIC_ARN:-}" ]] || return 0
   aws sns publish --topic-arn "$PZ_ALERT_TOPIC_ARN" \
     --subject "PZ ${PZ_STACK}: $1" --message "$2" >/dev/null 2>&1 \
     || log "WARNING: SNS publish failed"
+  # Emergencies land in the audit trail too, so `pz-audit` shows one complete timeline
+  # rather than making anyone cross-reference an inbox against it.
+  audit "$1" "$2" ALERT
+}
+
+# One stream per day per instance keeps `pz-audit`'s queries cheap and means a stream is
+# never written by two boots at once. CreateLogStream is idempotent in practice: it
+# returns ResourceAlreadyExistsException, which is not an error worth surfacing.
+#
+# put-log-events no longer requires a sequence token (AWS dropped that in 2023), so this
+# stays a single call with no read-modify-write and nothing to race.
+audit() {
+  [[ -n "${PZ_AUDIT_LOG_GROUP:-}" ]] || return 0
+  local event="$1" detail="$2" level="${3:-INFO}"
+  local stream ts payload
+  stream="$(date -u +%Y/%m/%d)/${PZ_INSTANCE_ID}"
+  ts="$(date -u +%s)000"
+
+  # JSON, so `pz-audit` can filter on fields rather than grepping prose.
+  payload="$(python3 -c '
+import json, sys
+print(json.dumps({
+    "source": "pz-watchdog",
+    "level": sys.argv[1],
+    "event": sys.argv[2],
+    "detail": sys.argv[3],
+    "stack": sys.argv[4],
+    "instance": sys.argv[5],
+}))' "$level" "$event" "$detail" "${PZ_STACK}" "${PZ_INSTANCE_ID}" 2>/dev/null)" || return 0
+
+  aws logs create-log-stream --log-group-name "$PZ_AUDIT_LOG_GROUP" \
+    --log-stream-name "$stream" >/dev/null 2>&1 || true
+  aws logs put-log-events --log-group-name "$PZ_AUDIT_LOG_GROUP" \
+    --log-stream-name "$stream" \
+    --log-events "timestamp=${ts},message=${payload}" >/dev/null 2>&1 \
+    || log "WARNING: audit log write failed"
 }
 
 # Full stop sequence. Every path that ends the session goes through this one function,
@@ -102,7 +148,10 @@ shutdown_sequence() {
   # Publish before the slow part: the backup and the unit stop can take minutes, and a
   # metric stamped after them describes the wrong moment.
   flush_metrics
-  notify "shutting down" "Reason: ${reason}. Saving and backing up first."
+  # Audit, not notify: every session ends here. The reason string is the useful part --
+  # "idle for 30m" vs "session cap" vs "pzserver.service down for 15m" is exactly what
+  # `pz-audit` is for, and none of it needs to interrupt anyone.
+  audit "shutting down" "Reason: ${reason}. Saving and backing up first."
 
   "$RCON" servermsg "\"Server shutting down: ${reason}\"" >/dev/null 2>&1
 
@@ -237,6 +286,9 @@ if (( idle >= IDLE_WARN )) && [[ ! -f "$WARNED_FILE" ]]; then
   # Broadcast in-game as well as to Discord: anyone who logs in during the window resets
   # the counter simply by being there, so the warning is genuinely actionable.
   "$RCON" servermsg "\"No players for ${idle} minutes -- shutting down in ${remaining}. Log in to keep the server up.\"" >/dev/null 2>&1
-  notify "idle warning" "No players for ${idle} minutes. Shutting down in ${remaining} minutes unless someone connects."
+  # The actionable copy of this warning is the in-game servermsg above: it reaches the
+  # people who can actually keep the server up by logging in. A push notification to the
+  # admin adds nothing and fired on most sessions.
+  audit "idle warning" "No players for ${idle} minutes. Shutting down in ${remaining} minutes unless someone connects."
   touch "$WARNED_FILE"
 fi

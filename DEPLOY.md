@@ -440,6 +440,24 @@ sudo touch /opt/pz/skip-update     # pz-update.service is ConditionPathExists=!t
 sudo rm /opt/pz/skip-update        # resume updating
 ```
 
+### Seeing what happened (instead of being told)
+
+Alarms and instance transitions do not email anyone unless something is genuinely broken
+— see [INFRA.md § Alerting](INFRA.md#alerting-two-destinations-and-the-difference-matters).
+Everything else lands in `/pz/prod/audit` and waits for you:
+
+```bash
+./bin/pz-audit.sh        # instance, spend vs budget, alarms, backups, last 24h
+./bin/pz-audit.sh 72     # widen the event window to three days
+```
+
+Read-only — every call is a Describe/Get/List, so it is safe mid-session.
+
+Start here when someone asks "why did the server go down last night". The shutdown reason
+the watchdog records (`idle for 30m` vs `session cap` vs `pzserver.service down for 15m`)
+is the thing that answers it, and it is in the event timeline rather than in anyone's
+inbox.
+
 ### Rotating the RCON password
 
 ```bash

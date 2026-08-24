@@ -59,6 +59,9 @@ module "game_server" {
   backup_bucket_name = module.backups.bucket_name
   ssm_prefix         = local.ssm_prefix
   alert_topic_arn    = aws_sns_topic.alerts.arn
+
+  audit_log_group_name = aws_cloudwatch_log_group.audit.name
+  audit_log_group_arn  = aws_cloudwatch_log_group.audit.arn
 }
 
 module "bot_host" {
@@ -107,4 +110,6 @@ module "observability" {
   data_volume_id     = module.game_server.data_volume_id
   monthly_budget_usd = var.monthly_budget_usd
   alert_topic_arn    = aws_sns_topic.alerts.arn
+
+  audit_log_group_arn = aws_cloudwatch_log_group.audit.arn
 }
