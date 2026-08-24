@@ -17,7 +17,7 @@
         "drop_device": true
       },
       "mem": {
-        "measurement": ["mem_used_percent"]
+        "measurement": ["mem_used_percent", "mem_available_percent"]
       }
     }
   }

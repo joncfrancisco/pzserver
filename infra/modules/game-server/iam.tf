@@ -90,12 +90,21 @@ resource "aws_iam_role_policy" "game" {
       {
         # The watchdog's whole job. Namespace-conditioned so a compromised host cannot
         # scribble over anyone else's metrics in this shared account.
+        #
+        # BOTH namespaces are required, and the omission of CWAgent silently broke the
+        # disk and memory alarms from day one: the watchdog publishes to PZ, but the
+        # CloudWatch agent publishes to CWAgent and was getting 403 AccessDenied on
+        # every flush. Because those two alarms treat missing data as notBreaching, they
+        # sat at OK having never received a single datapoint -- the same "guardrail that
+        # looks healthy while watching nothing" failure as the untagged budget.
+        # ops/etc/cloudwatch-agent.json sets the CWAgent namespace; the alarms in
+        # modules/observability read it. If either moves, this list moves with it.
         Sid      = "PublishMetrics"
         Effect   = "Allow"
         Action   = ["cloudwatch:PutMetricData"]
         Resource = "*"
         Condition = {
-          StringEquals = { "cloudwatch:namespace" = "PZ" }
+          StringEquals = { "cloudwatch:namespace" = ["PZ", "CWAgent"] }
         }
       },
       {
