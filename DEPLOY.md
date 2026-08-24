@@ -10,17 +10,26 @@ Everything here assumes the `default` AWS profile in `us-east-1`, and Terraform 
 
 ## Outstanding after the 2026-08-23 remediation deploy
 
-The audit remediation is applied and verified. One prerequisite is still outstanding, and
-it is the one that matters most.
+The audit remediation is applied and verified. One prerequisite remained outstanding as
+of 2026-08-23 and has since cleared.
 
-| Step | State on 2026-08-23 | Consequence |
+| Step | State on 2026-08-24 | Consequence |
 |---|---|---|
-| Activate the `pz:stack` cost allocation tag | **Still not active** — and *cannot be yet*: no EC2/VPC charge has posted for August, which is the precondition. Not a misconfiguration; see below | `pz-prod-monthly` reports **$0.00** against a $45 limit and reads healthy |
+| Activate the `pz:stack` cost allocation tag | ✅ **Active** as of 2026-08-24 — the first EC2/VPC charge for August posted, `aws ce list-cost-allocation-tags` offered the key, and `update-cost-allocation-tags-status` succeeded on the first attempt | `pz-prod-monthly` now tracks real PZ spend instead of reporting a fictional $0.00 |
 | Raise the account-wide `Safety Net` budget | ✅ done — now **$70** | — |
 | Discord alert webhook in Parameter Store | ✅ done — relay verified end to end | — |
 | Quarterly restore drill | Never run | A backup nobody has restored is not a backup |
 
+Because activation is **not retroactive**, spend between stack creation (2026-08-22/23)
+and activation (2026-08-24) never posted against `pz-prod-monthly` and never will — that
+gap was covered only by the account-wide `Safety Net` budget while it lasted. Nothing to
+do about it now; it's recorded here so a future "why doesn't the total match" doesn't
+turn into a re-investigation.
+
 ### The tag activation is a waiting game — and here is the thing to wait *for*
+
+*(Kept below for the next time a cost-allocation tag needs activating on a fresh stack —
+the mechanism is the same.)*
 
 The resources **are** tagged — `aws ec2 describe-tags --filters Name=key,Values=pz:stack`
 returns 20 of them. Billing only offers a key for activation once it has propagated into
