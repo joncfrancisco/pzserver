@@ -98,8 +98,14 @@ ENVEOF
 # runs, and pz-start-server.sh sources this file. It should not be world-readable
 # either: per DESIGN C7 the RCON password in here is equivalent to full control of the
 # server. Group-reading by pzuser grants that account nothing it does not already have
-# -- the same password is in its own Server/*.ini, and the admin password is on its
-# command line.
+# -- the same password is in its own Server/*.ini.
+#
+# This comment used to end "...and the admin password is on its command line", offered as
+# further proof that pzuser learns nothing new here. That was true and it was the wrong
+# conclusion to draw: a command line is world-readable via /proc/<pid>/cmdline, so it
+# leaked to EVERY local account, not just to pzuser. pz-start-server.sh no longer passes
+# -adminpassword on an ordinary start, so 0640 is now the tightest exposure either
+# credential has -- which is the point.
 install -m 0640 -o root -g pzuser "$tmp" "$ENV_FILE"
 rm -f "$tmp"
 log "wrote $ENV_FILE for stack=$STACK server=$SERVER_NAME xmx=$XMX"
