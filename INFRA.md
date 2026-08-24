@@ -120,20 +120,18 @@ The resolution has two halves:
    [DEPLOY.md](DEPLOY.md#0-before-anything-raise-the-account-budget); re-run it if the
    account's shape changes again.
 
-⚠️ **The tag filter only works once `pz:stack` is activated as a cost allocation tag** in
-Billing, and activation is **not retroactive** — it applies from activation onward. Until
-then the PZ budget cheerfully reports $0.00 spent, which is the most dangerous possible
-failure mode for a guardrail: it looks healthy. DEPLOY.md has the activation command and
-a verification step; do not skip it.
+✅ **`pz:stack` activated as a cost allocation tag on 2026-08-24.** The first EC2/VPC
+charge for August posted, the key appeared in `aws ce list-cost-allocation-tags`, and
+activation succeeded on the first attempt after that. `pz-prod-monthly` now tracks real
+spend instead of a fictional $0.00.
 
-The precondition is easy to misread as a failure. Tagging the resources is **not**
-sufficient — 20 resources carry `pz:stack` and activation still returns
-`Tag keys not found`. A tag key only becomes activatable once a **charge carrying that
-tag has posted**, which had not happened as of 2026-08-23 (the stack was created
-2026-08-22/23 and no EC2 or VPC charge has landed yet). So this is a waiting state with a
-specific thing to wait for, not a broken step — see
+Activation is **not retroactive** — it applies from activation onward — so the gap
+between stack creation (2026-08-22/23) and activation (2026-08-24) is spend that
+`pz-prod-monthly` will never show. That's expected and already accounted for; nothing to
+fix. The mechanism (tag key only becomes activatable once a charge carrying it posts, not
+merely once a resource carries it) is recorded in
 [DEPLOY.md § The tag activation is a waiting game](DEPLOY.md#the-tag-activation-is-a-waiting-game--and-here-is-the-thing-to-wait-for)
-for the leading indicator to poll.
+in case a future stack hits the same precondition.
 
 ### Networking: no path between them
 
