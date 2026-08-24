@@ -188,6 +188,13 @@ queue_metric PlayersOnline "$count" Count
 # Backup freshness, for the stale-backup alarm.
 if [[ -r "$MARKER" ]]; then
   age_min=$(( ( $(date -u +%s) - $(cat "$MARKER") ) / 60 ))
+  # Clamp to instance uptime. The instance is stopped by default (the whole cost model),
+  # so the marker is routinely wall-clock hours old the moment the box boots -- without
+  # this, the first datapoint of nearly every session blows past the 90-minute threshold
+  # before a scheduled backup has had any chance to run. The alarm's own description says
+  # "while the server is running"; this is what makes that true instead of just documented.
+  uptime_min=$(( $(cut -d. -f1 /proc/uptime) / 60 ))
+  (( age_min > uptime_min )) && age_min=$uptime_min
   # Unit None, not Count: the value is a duration in minutes, and CloudWatch has no
   # "Minutes" unit. Labelling it Count made the console and any future dashboard render
   # it as a quantity of things.
