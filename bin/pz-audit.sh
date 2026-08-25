@@ -65,7 +65,13 @@ DATA="$(aws ec2 describe-instances \
   --query 'Reservations[].Instances[].{Role:Tags[?Key==`pz:role`]|[0].Value,Id:InstanceId,Type:InstanceType,State:State.Name,Since:LaunchTime}' \
   --output json 2>/dev/null || true)"
 
-DATA="$DATA" python3 - <<'PY'
+# Game-server uptime is written to a temp file because the Backups section needs it: a
+# backup's wall-clock age is only meaningful once the box has been up long enough for a
+# backup to have run. See the note there.
+UPTIME_FILE="$(mktemp)"
+trap 'rm -f "$UPTIME_FILE"' EXIT
+
+DATA="$DATA" UPTIME_FILE="$UPTIME_FILE" python3 - <<'PY'
 import datetime, json, os
 
 rows = json.loads(os.environ["DATA"] or "[]")
@@ -74,14 +80,20 @@ if not rows:
     raise SystemExit
 
 now = datetime.datetime.now(datetime.timezone.utc)
+game_uptime = ""
 for r in sorted(rows, key=lambda x: x.get("Role") or ""):
     up = ""
     if r["State"] == "running" and r.get("Since"):
         t = datetime.datetime.fromisoformat(r["Since"].replace("Z", "+00:00"))
         m = int((now - t).total_seconds() // 60)
         up = "  up {}h{:02d}m".format(m // 60, m % 60)
+        if r.get("Role") == "gameserver":
+            game_uptime = str(m)
     print("  {:<11} {:<12} {:<9} {}{}".format(
         r.get("Role") or "?", r["Type"], r["State"], r["Id"], up))
+
+with open(os.environ["UPTIME_FILE"], "w") as fh:
+    fh.write(game_uptime)
 PY
 
 # --- Spend ---------------------------------------------------------------------------
@@ -160,7 +172,7 @@ DATA="$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "backups/${STACK}/
   --query 'sort_by(Contents,&LastModified)[-6:].{K:Key,M:LastModified,S:Size}' \
   --output json 2>/dev/null || true)"
 
-DATA="$DATA" BUCKET="$BUCKET" python3 - <<'PY'
+DATA="$DATA" BUCKET="$BUCKET" UPTIME="$(cat "$UPTIME_FILE" 2>/dev/null || true)" python3 - <<'PY'
 import datetime, json, os
 
 raw = os.environ["DATA"].strip()
@@ -172,10 +184,24 @@ if not rows:
 now = datetime.datetime.now(datetime.timezone.utc)
 newest = datetime.datetime.fromisoformat(rows[-1]["M"].replace("Z", "+00:00"))
 age = int((now - newest).total_seconds() // 60)
-# 90 minutes is the stale-backup alarm's threshold, so flagging it here means the report
-# and the alarm can never disagree about what "stale" means.
-warn = "  <-- past the 90m stale-backup threshold" if age > 90 else ""
-print("  newest is {}h{:02d}m old{}\n".format(age // 60, age % 60, warn))
+
+# Wall-clock age alone is misleading here, and saying so is the point. The instance is
+# stopped by default, so after any long stop the newest backup is hours old the moment
+# the box boots -- while pz-prod-backup-stale correctly reads OK, because the metric it
+# watches is clamped to uptime (that is the whole of issue #20). Reporting a bare "past
+# the threshold" next to an OK alarm would look like the alarm was broken.
+uptime = os.environ.get("UPTIME", "").strip()
+uptime_min = int(uptime) if uptime.isdigit() else None
+
+note = ""
+if age > 90:
+    if uptime_min is None:
+        note = "  (instance stopped -- backups only run while it is up)"
+    elif uptime_min <= 90:
+        note = "  (expected: box up only {}m; the alarm clamps to uptime)".format(uptime_min)
+    else:
+        note = "  <-- STALE: box up {}m with no fresh backup".format(uptime_min)
+print("  newest is {}h{:02d}m old{}\n".format(age // 60, age % 60, note))
 
 for r in reversed(rows):
     print("  {}  {:7.1f} MB  {}".format(

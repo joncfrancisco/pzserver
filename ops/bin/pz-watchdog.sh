@@ -116,27 +116,43 @@ notify() {
 audit() {
   [[ -n "${PZ_AUDIT_LOG_GROUP:-}" ]] || return 0
   local event="$1" detail="$2" level="${3:-INFO}"
-  local stream ts payload
+  local stream request
   stream="$(date -u +%Y/%m/%d)/${PZ_INSTANCE_ID}"
-  ts="$(date -u +%s)000"
 
-  # JSON, so `pz-audit` can filter on fields rather than grepping prose.
-  payload="$(python3 -c '
-import json, sys
+  # The ENTIRE request is built as JSON and passed with --cli-input-json.
+  #
+  # It must not use the CLI's `--log-events timestamp=..,message=..` shorthand, which is
+  # the obvious way to write this and silently does not work: the message is itself JSON,
+  # the shorthand parser splits fields on commas, and it dies on the first one inside the
+  # payload with "Expected: '=', received: '\"'". Because audit failures are deliberately
+  # quiet (a watchdog must not fail a shutdown over a log write), that mistake produced
+  # an audit trail that was simply always empty of watchdog events -- the exact
+  # looks-fine-records-nothing failure this whole design exists to avoid.
+  request="$(python3 -c '
+import json, sys, time
+group, stream, level, event, detail, stack, inst = sys.argv[1:8]
 print(json.dumps({
-    "source": "pz-watchdog",
-    "level": sys.argv[1],
-    "event": sys.argv[2],
-    "detail": sys.argv[3],
-    "stack": sys.argv[4],
-    "instance": sys.argv[5],
-}))' "$level" "$event" "$detail" "${PZ_STACK}" "${PZ_INSTANCE_ID}" 2>/dev/null)" || return 0
+    "logGroupName": group,
+    "logStreamName": stream,
+    "logEvents": [{
+        "timestamp": int(time.time() * 1000),
+        # message is JSON-in-JSON on purpose, so `pz-audit` can filter on fields rather
+        # than grepping prose.
+        "message": json.dumps({
+            "source": "pz-watchdog",
+            "level": level,
+            "event": event,
+            "detail": detail,
+            "stack": stack,
+            "instance": inst,
+        }),
+    }],
+}))' "$PZ_AUDIT_LOG_GROUP" "$stream" "$level" "$event" "$detail" \
+    "${PZ_STACK}" "${PZ_INSTANCE_ID}" 2>/dev/null)" || return 0
 
   aws logs create-log-stream --log-group-name "$PZ_AUDIT_LOG_GROUP" \
     --log-stream-name "$stream" >/dev/null 2>&1 || true
-  aws logs put-log-events --log-group-name "$PZ_AUDIT_LOG_GROUP" \
-    --log-stream-name "$stream" \
-    --log-events "timestamp=${ts},message=${payload}" >/dev/null 2>&1 \
+  aws logs put-log-events --cli-input-json "$request" >/dev/null 2>&1 \
     || log "WARNING: audit log write failed"
 }
 
