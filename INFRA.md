@@ -179,9 +179,10 @@ them.
 | DLM policy | Daily snapshot of the data volume at 09:00 UTC, 7-day retention | Selects on `pz:role=gameserver-data`. Runs after foodblog's 08:15/08:30 backup timers. |
 | SSM Parameter Store | `/pz/prod/config/*` (String, Terraform-managed) and `/pz/prod/{rcon,admin}_password`, `/pz/prod/discord/*` (SecureString, **out of band**) | See "Secrets" below. |
 | IAM roles | `pz-prod-gameserver-role`, `pz-prod-bot-role`, `pz-prod-dlm-role` | Tag-conditioned. See DESIGN §9 and the two `iam.tf` files. |
-| SNS topic | `pz-prod-alerts` | CloudWatch alarms, EventBridge state changes, Budgets, and the watchdog all publish here. The bot subscribes and mirrors into Discord. |
+| SNS topic | `pz-prod-alerts` | **Emergencies only** — email + the Discord relay. See "Alerting" below for what qualifies. |
+| CloudWatch Logs | `/pz/prod/audit`, 90-day retention | The quiet destination: every alarm transition, every instance state change, and the watchdog's routine notices. Read with [`bin/pz-audit.sh`](bin/pz-audit.sh). |
 | CloudWatch | `PZ/PlayersOnline`, `PZ/ServerReady`, `PZ/BackupAgeMinutes`, `PZ/BackupSizeBytes`; `CWAgent` disk + memory | Four alarms; see [modules/observability](infra/modules/observability/main.tf). |
-| EventBridge | Rule on EC2 state-change for the game instance | Catches stops from the console **and instance retirement**, which otherwise looks exactly like a normal stop. |
+| EventBridge | Three rules: EC2 state-change → audit log, `terminated` → SNS, alarm state-change → audit log | Catches stops from the console **and instance retirement**. Routine transitions are recorded, not delivered; `terminated` is never routine and pages. |
 | Budgets | `pz-prod-monthly`, $45, filtered on `pz:stack=prod` | Separate from the account-wide `Safety Net` — see above. |
 
 **Terraform state**: `s3://pz-tfstate-020949219706/pzserver/prod.tfstate`, versioned, with
@@ -216,6 +217,47 @@ never destroy the bucket holding its own state.
     manages the parameter *names and IAM access*, never the values; there is deliberately
     no `data "aws_ssm_parameter"` anywhere in this repo, because it would pull plaintext
     into state.
+
+## Alerting: two destinations, and the difference matters
+
+Everything is **recorded**; almost nothing is **delivered**.
+
+| | Goes to | Reaches you how |
+|---|---|---|
+| **Emergency** | SNS `pz-prod-alerts` | Email **and** Discord, immediately |
+| **Everything else** | CloudWatch Logs `/pz/prod/audit` | Only when you run `bin/pz-audit.sh` |
+
+**Emergencies** are the eight alarms that still carry `alarm_actions`, the watchdog's
+`STOP FAILED` / `game not running` / `server unreachable`, an unexpected `terminated`,
+and the budget at 100% actual or forecast. The common thread is that a human has to do
+something.
+
+**Everything else** — instance start/stop, the idle warning, the routine end-of-session
+shutdown, every `OK` recovery, budget 50%/80% — is recorded and nothing more.
+
+This used to be one destination, and the arithmetic is why it changed: a perfectly
+healthy two-hour session produced about **six emails and six Discord messages** (three
+EC2 state transitions, an idle warning, a shutdown notice, plus recovery notifications).
+None were actionable. A channel that behaves that way gets muted, and a muted channel
+cannot deliver `STOP FAILED — it is still billing`, which is the one message this system
+exists to send.
+
+Two consequences worth knowing:
+
+- **The split had to happen at the topic**, not in the relay Lambda. Email is subscribed
+  directly to the SNS topic, so filtering downstream would have quietened Discord and
+  left the inbox exactly as loud.
+- **The audit trail records strictly more than the old setup did** — including `OK` and
+  `INSUFFICIENT_DATA` transitions, which previously existed only as email nobody kept.
+
+To see it:
+
+```bash
+./bin/pz-audit.sh        # state, spend vs budget, alarms, backups, last 24h of events
+./bin/pz-audit.sh 72     # three days of events
+```
+
+It is read-only and safe to run mid-session.
 
 ## How the server runs
 

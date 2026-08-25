@@ -83,6 +83,7 @@ PZ_SESSION_CAP_HOURS=$(get session_cap_hours)
 PZ_DOWN_TIMEOUT_MIN=$(get down_timeout_min)
 PZ_BACKUP_BUCKET=$(get backup_bucket)
 PZ_ALERT_TOPIC_ARN=$(get alert_topic_arn)
+PZ_AUDIT_LOG_GROUP=$(get audit_log_group)
 PZ_RCON_HOST=127.0.0.1
 PZ_RCON_PORT=27015
 PZ_RCON_PASSWORD=${RCON_PASSWORD}

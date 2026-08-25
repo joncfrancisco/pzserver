@@ -108,6 +108,13 @@ resource "aws_eip" "bot" {
 # that provisions a host should own the alarms about that host, and it keeps
 # observability's game_instance_id scoping honest.
 
+# None of the three alarms below carry ok_actions, deliberately. Each of them already
+# takes an automatic corrective action (recover / reboot), so the recovery notice was a
+# second message about a problem that had resolved itself -- and paired with the ALARM it
+# doubled the volume of the alerts that matter most. Every OK transition is still
+# recorded in the audit log by the observability module's audit_alarm_state rule, so
+# `pz-audit` can show that the host bounced overnight without anyone's phone buzzing.
+
 # Hardware or hypervisor failure underneath the instance. `recover` migrates it to new
 # hardware, keeping the instance id, private IP and EIP -- which matters, because the
 # bot's whole job is to still be reachable.
@@ -132,7 +139,6 @@ resource "aws_cloudwatch_metric_alarm" "bot_system_check" {
     "arn:${data.aws_partition.current.partition}:automate:${var.region}:ec2:recover",
     var.alert_topic_arn,
   ]
-  ok_actions = [var.alert_topic_arn]
 }
 
 # The guest itself: exhausted memory, a corrupted filesystem, a kernel that stopped
@@ -156,7 +162,6 @@ resource "aws_cloudwatch_metric_alarm" "bot_instance_check" {
     "arn:${data.aws_partition.current.partition}:automate:${var.region}:ec2:reboot",
     var.alert_topic_arn,
   ]
-  ok_actions = [var.alert_topic_arn]
 }
 
 # The failure a status check CANNOT see: the instance is healthy, the process is running,
@@ -189,5 +194,4 @@ resource "aws_cloudwatch_metric_alarm" "bot_heartbeat" {
   treat_missing_data  = "breaching"
 
   alarm_actions = [var.alert_topic_arn]
-  ok_actions    = [var.alert_topic_arn]
 }

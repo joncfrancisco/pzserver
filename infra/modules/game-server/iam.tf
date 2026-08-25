@@ -129,12 +129,27 @@ resource "aws_iam_role_policy" "game" {
         Resource = "*"
       },
       {
-        # The watchdog announces "shutting down in 5 minutes" through SNS, which the bot
-        # mirrors into Discord. Publish only, to this stack's topic only.
+        # The watchdog's EMERGENCY path only -- a crash loop, an unreachable server, or a
+        # stop that failed and left the instance billing. Routine notices ("shutting down,
+        # nobody online") go to the audit log below instead, because paging about the
+        # normal end of every session is what made this channel ignorable.
+        # Publish only, to this stack's topic only.
         Sid      = "PublishAlerts"
         Effect   = "Allow"
         Action   = ["sns:Publish"]
         Resource = var.alert_topic_arn
+      },
+      {
+        # The watchdog's audit path: why a session ended, idle warnings, anything worth
+        # being able to look up later but not worth interrupting anyone for.
+        #
+        # No logs:CreateLogGroup -- the group is created by Terraform in the root module,
+        # and withholding this means a bug in the watchdog cannot litter the account with
+        # log groups that nothing retains or bills for.
+        Sid      = "WriteAuditLog"
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource = "${var.audit_log_group_arn}:*"
       },
     ]
   })

@@ -21,3 +21,5 @@ variable "backup_bucket_arn" { type = string }
 variable "backup_bucket_name" { type = string }
 variable "ssm_prefix" { type = string }
 variable "alert_topic_arn" { type = string }
+variable "audit_log_group_name" { type = string }
+variable "audit_log_group_arn" { type = string }
