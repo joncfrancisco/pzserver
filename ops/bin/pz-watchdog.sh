@@ -136,7 +136,7 @@ print(json.dumps({
     "logStreamName": stream,
     "logEvents": [{
         "timestamp": int(time.time() * 1000),
-        # message is JSON-in-JSON on purpose, so `pz-audit` can filter on fields rather
+        # message is JSON-in-JSON on purpose, so pz-audit can filter on fields rather
         # than grepping prose.
         "message": json.dumps({
             "source": "pz-watchdog",
