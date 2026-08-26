@@ -200,9 +200,10 @@ never destroy the bucket holding its own state.
   ```
   This is a real difference from foodblog, which is SSH-only (Lightsail, no SSM agent).
   Do not go looking for a `.pem` file for this stack; there isn't one.
-- **Scripted access:** `ssm send-command` with `AWS-RunShellScript`. The bot's IAM policy
-  enumerates the documents it may invoke rather than wildcarding them, so there is no path
-  from a Discord message to arbitrary shell.
+- **Scripted access (operator, this account's own credentials):** `ssm send-command` with
+  `AWS-RunShellScript`. `pz-bot-role` does not have this document — its policy enumerates
+  seven purpose-built documents instead (issue #29), so there is no path from a Discord
+  message to arbitrary shell.
 - **AWS CLI:** `default` profile, `us-east-1`, currently `jon-claude-local`
   (group `bots`, `AdministratorAccess`). Shared account — check ownership before acting
   account-wide.

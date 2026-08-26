@@ -494,7 +494,13 @@ Named here so the boundary is deliberate rather than accidental. Both are natura
 - **Guild and channel allowlists** so a leaked token cannot be used from an attacker's own server.
 - **Command allowlisting** — `/pz config` writes only to an explicit key allowlist, `/pz restore` validates the archive name against both a regex and the live S3 listing, and every argument that reaches a command string is `shlex.quote`d.
 
-  ⚠️ **This is enforced by convention in `pzbot`, not by IAM — the distinction matters.** The bot's policy does enumerate rather than wildcard the SSM documents it may invoke, but the one document enumerated is `AWS-RunShellScript`, whose entire purpose is running caller-supplied shell as root. Enumerating it constrains nothing. The code honours the rule carefully and consistently, so this is not an exploitable hole today — but the reachable surface if the Discord token leaks, or if a bug lands in argument handling, is root on the game server rather than the intended handful of operations. Closing it properly means purpose-built `aws_ssm_document`s with typed parameters and `allowedPattern` regexes, tracked as audit finding PZ-05.
+  This is now enforced by IAM, not just by convention in `pzbot` (audit finding PZ-05,
+  tracked as issue #29). The bot's policy enumerates seven purpose-built
+  `aws_ssm_document`s, each with typed parameters and an `allowedPattern`/`allowedValues`
+  the document itself enforces — `AWS-RunShellScript`, whose entire purpose is running
+  caller-supplied shell as root, is not granted at all. The application-layer discipline
+  (regex validation, the `INI_KEYS` allowlist) is defense in depth on top of that now,
+  rather than the only thing standing between a Discord message and root.
 - **Audit channel** captures every state-changing command with actor and outcome.
 - **PZ admin account password** is distinct from the RCON password, which is distinct from anything else. Generated, not chosen.
 

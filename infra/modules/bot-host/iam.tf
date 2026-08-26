@@ -74,21 +74,16 @@ resource "aws_iam_role_policy" "bot" {
         }
       },
       {
-        # The documents the bot may invoke are enumerated, not wildcarded. There is no
-        # path from a Discord message to arbitrary shell on the game server.
-        #
-        # AWS-RunShellScript is still granted here alongside the scoped documents below
-        # -- issue #29 phase 1. Its `commands` parameter has no IAM-expressible
-        # constraint, so this grant is wider than it should be; it stays only until
-        # pzbot's companion issue switches every call site to the documents below, at
-        # which point this line is removed in a follow-up change.
-        Sid    = "SendCommandDocuments"
-        Effect = "Allow"
-        Action = ["ssm:SendCommand"]
-        Resource = concat(
-          ["arn:${data.aws_partition.current.partition}:ssm:${var.region}::document/AWS-RunShellScript"],
-          var.ssm_document_arns,
-        )
+        # The documents the bot may invoke are enumerated, not wildcarded (issue #29).
+        # AWS-RunShellScript is deliberately absent: its `commands` parameter has no
+        # IAM-expressible constraint, so granting it would make every other
+        # `allowedPattern` below decorative. pzbot's call sites all moved onto these
+        # scoped documents in joncfrancisco/pzbot#16; this is the phase-3 removal that
+        # actually closes the gap the issue describes.
+        Sid      = "SendCommandDocuments"
+        Effect   = "Allow"
+        Action   = ["ssm:SendCommand"]
+        Resource = var.ssm_document_arns
       },
       {
         Sid      = "ReadCommandResults"
