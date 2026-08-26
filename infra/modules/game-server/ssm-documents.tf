@@ -68,7 +68,7 @@ resource "aws_ssm_document" "restore" {
         type        = "String"
         description = "A backup name produced by this stack's backup tiers"
         # Mirrors pzbot's BACKUP_NAME regex (server.py) exactly.
-        allowedPattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z__(scheduled|prestop|prerestore|manual)(__[A-Za-z0-9_-]{1,40})?$"
+        allowedPattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z__(scheduled|prestop|prerestore|manual)(__[A-Za-z0-9_-]{1,40})?\\.tar\\.zst$"
       }
     }
     mainSteps = [{
@@ -148,8 +148,10 @@ resource "aws_ssm_document" "config_write" {
       value = {
         type = "String"
         # No `=` (would split the key) and no newline (would inject a second .ini
-        # line) -- mirrors pzbot's IniKey.clean rule for text values.
-        allowedPattern = "^[^\\n=]{0,200}$"
+        # line) -- mirrors pzbot's IniKey.clean rule for text values. 300, not 200:
+        # ServerWelcomeMessage's max_len is 300 and this must be a superset of every
+        # INI_KEYS entry's own bound, not just the common case.
+        allowedPattern = "^[^\\n=]{0,300}$"
       }
     }
     mainSteps = [{
