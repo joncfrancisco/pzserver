@@ -373,6 +373,11 @@ Fixed floor, paid whether or not anybody plays:
 | Route 53 record in the shared zone | $0.00 |
 | **Fixed subtotal** | **~$16.46** |
 
+> **Decided, not overlooked ([#30](https://github.com/joncfrancisco/pzserver/issues/30)):
+> the game EIP's $3.65/mo while stopped stays.** Releasing it and re-resolving the `pz` A
+> record on each boot would save ~$3/mo but puts a DNS write in the `/pz start` critical
+> path and needs a new IAM grant on a zone shared with foodblog. Not worth it for $3.
+
 Variable, at the live `m7i.xlarge` on-demand price of **$0.2016/hr** (verified against the
 Pricing API on 2026-08-22, along with `r7i.xlarge` $0.2646, `m7i.large` $0.1008,
 `t4g.nano` $0.0042 — all matching DESIGN §5):
