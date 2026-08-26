@@ -10,7 +10,7 @@ variable "ssm_prefix" { type = string }
 variable "alert_topic_arn" { type = string }
 
 variable "ssm_document_arns" {
-  description = "ARNs of the scoped SSM documents the bot may invoke (issue #29). Additive alongside AWS-RunShellScript until pzbot switches over."
+  description = "ARNs of the scoped SSM documents the bot may invoke, and the only ssm:SendCommand targets it has (issue #29)."
   type        = list(string)
 }
 
