@@ -159,8 +159,10 @@ resource "aws_dlm_lifecycle_policy" "data_snapshots" {
     resource_types = ["VOLUME"]
 
     target_tags = {
-      "pz:role"  = "gameserver-data"
-      "pz:stack" = var.stack
+      # pz:role alone is unique to the data volume. DLM's target_tags match is an OR,
+      # not an AND -- adding pz:stack here widened the selector to every volume in the
+      # stack instead of narrowing it (see issue #28).
+      "pz:role" = "gameserver-data"
     }
 
     schedule {
