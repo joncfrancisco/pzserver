@@ -114,7 +114,7 @@ The bot cannot live on the game server, because the whole product requirement is
 | Option | Verdict |
 |---|---|
 | **t4g.nano, always on** | **Chosen.** ~$3.07/month. Persistent gateway connection means no 3-second interaction deadline to design around, long-running operations can stream progress into the same message, and the idle-watchdog logic has a natural home. Graviton is fine — the bot is pure Python. |
-| Lambda + API Gateway (HTTP interactions) | Cheaper (effectively free), but every interaction must be acknowledged in 3 seconds, deferred follow-ups need a second invocation, and there is no long-lived connection for pushing unsolicited notifications (backup complete, idle shutdown warning, budget alarm). Workable, but more moving parts for less money than a nano instance costs. Revisit if the $3/month ever matters. |
+| Lambda + API Gateway (HTTP interactions) | Reconsidered 2026-08 (pzbot#13): still no. The bot's RCON probe needs the game server's *private* IP (C7, below) — a Lambda needs VPC attachment to reach it, and a VPC-attached Lambda needs a NAT Gateway to reach Discord's API and AWS's public endpoints (~$32–45/mo), which costs more than the ~$7.36/mo (nano + EIP) it would save. `/pz restore`'s worst case (~70 min across chained SSM calls) also exceeds Lambda's 15-minute limit regardless of transport. The $3/month threshold from the original verdict was reached; the answer didn't change. |
 | Fargate task | Same always-on cost profile as the nano but with more infrastructure. No advantage at this scale. |
 | On the game server | Fails G3 outright. |
 
