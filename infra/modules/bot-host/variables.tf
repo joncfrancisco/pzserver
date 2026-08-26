@@ -9,6 +9,11 @@ variable "backup_bucket_name" { type = string }
 variable "ssm_prefix" { type = string }
 variable "alert_topic_arn" { type = string }
 
+variable "ssm_document_arns" {
+  description = "ARNs of the scoped SSM documents the bot may invoke (issue #29). Additive alongside AWS-RunShellScript until pzbot switches over."
+  type        = list(string)
+}
+
 variable "enable_bot_heartbeat_alarm" {
   description = <<-EOT
     Alarm when the bot stops publishing PZ/BotAlive. Leave false until pzbot's heartbeat

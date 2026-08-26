@@ -78,6 +78,7 @@ module "bot_host" {
   backup_bucket_name = module.backups.bucket_name
   ssm_prefix         = local.ssm_prefix
   alert_topic_arn    = aws_sns_topic.alerts.arn
+  ssm_document_arns  = module.game_server.ssm_document_arns
 
   enable_bot_heartbeat_alarm = var.enable_bot_heartbeat_alarm
 }
