@@ -63,19 +63,34 @@ resource "aws_iam_role_policy" "game" {
       },
       {
         # Host config and the RCON/admin passwords, read fresh on every boot by
-        # pz-config-refresh.sh -- which uses GetParametersByPath to fetch the whole tree
-        # in one call.
+        # pz-config-refresh.sh.
         #
         # Two things this statement has to get right, both of which failed the first
         # apply: GetParametersByPath is a distinct action from GetParameter(s), and it
         # authorizes against the PATH itself, not only the parameters under it. Hence
-        # both ARNs -- the bare prefix and the wildcard.
+        # the bare `/config` ARN as well as its wildcard.
+        #
+        # It is scoped to `/config/*` plus two named secrets rather than the whole
+        # prefix, and that is the point of the statement. `${var.ssm_prefix}/*` also
+        # matches `${var.ssm_prefix}/discord/*` -- a wildcard does not stop at a slash --
+        # so the old form let the game server read the Discord bot token, the audit and
+        # main channel ids, both role ids and the alert webhook. It did exactly that on
+        # every boot, because pz-config-refresh.sh swept the prefix recursively with
+        # --with-decryption; CloudTrail shows seven KMS Decrypt calls under this role for
+        # parameters it never used. A separate always-on bot host exists so that the box
+        # strangers connect to does not hold the bot's credentials; this statement is
+        # what makes that true at the IAM layer rather than by convention.
+        #
+        # Anything added under the prefix in future is unreachable from here until it is
+        # named below -- which is the intended failure mode.
         Sid    = "ReadOwnConfigAndSecrets"
         Effect = "Allow"
         Action = ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"]
         Resource = [
-          "arn:${data.aws_partition.current.partition}:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_prefix}",
-          "arn:${data.aws_partition.current.partition}:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_prefix}/*",
+          "arn:${data.aws_partition.current.partition}:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_prefix}/config",
+          "arn:${data.aws_partition.current.partition}:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_prefix}/config/*",
+          "arn:${data.aws_partition.current.partition}:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_prefix}/rcon_password",
+          "arn:${data.aws_partition.current.partition}:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_prefix}/admin_password",
         ]
       },
       {
