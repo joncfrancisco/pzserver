@@ -37,11 +37,26 @@ fi
 
 PREFIX="/pz/${STACK}"
 
-# One call for the whole config tree. --with-decryption covers the SecureStrings
-# (rcon_password, admin_password) that live alongside it.
-params_json="$(aws ssm get-parameters-by-path \
-  --path "$PREFIX" --recursive --with-decryption \
+# Two scoped reads, deliberately NOT one --recursive sweep of $PREFIX.
+#
+# The bot's Discord credentials live at $PREFIX/discord/* and this host has no use for
+# any of them. A recursive fetch of the whole prefix pulled all seven onto the game
+# server on every boot and, with --with-decryption, decrypted them -- the bot token
+# included, onto the one box strangers connect to. That is precisely the blast radius
+# that giving the bot its own host exists to avoid, and it was invisible because the
+# script only ever read four values out of what it fetched.
+#
+# server_name and xmx live under config/, so the config read still has to recurse; it
+# just recurses somewhere that holds no secrets of anyone else's. Widen this only by
+# naming another parameter explicitly, never by moving the path up a level.
+config_json="$(aws ssm get-parameters-by-path \
+  --path "$PREFIX/config" --recursive \
   --query 'Parameters[].{n:Name,v:Value}' --output json)"
+secrets_json="$(aws ssm get-parameters \
+  --names "$PREFIX/rcon_password" "$PREFIX/admin_password" --with-decryption \
+  --query 'Parameters[].{n:Name,v:Value}' --output json)"
+params_json="$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1]) + json.loads(sys.argv[2])))' \
+  "$config_json" "$secrets_json")"
 
 get() {
   python3 -c '
