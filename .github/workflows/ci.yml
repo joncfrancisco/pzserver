@@ -22,7 +22,7 @@ jobs:
   terraform:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: hashicorp/setup-terraform@v4
         with:
@@ -48,7 +48,7 @@ jobs:
   tflint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: terraform-linters/setup-tflint@v6
         with:
           tflint_version: v0.53.0
@@ -62,7 +62,7 @@ jobs:
   shell:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # A syntax error in a unit-invoked script surfaces as a service that will not start,
       # on a box you have to SSM into to read the journal. `bash -n` is the cheap gate that
@@ -80,7 +80,7 @@ jobs:
   line-endings:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # ops/** is pulled straight onto Linux and run by shebang and systemd's parser, both
       # of which break on CRLF in ways that are genuinely hard to read: `bad interpreter:
