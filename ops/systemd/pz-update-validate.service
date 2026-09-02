@@ -7,7 +7,8 @@
 # This is where that capability went.
 #
 # Run it when the game misbehaves in a way that smells like a bad file -- missing
-# textures, a crash on world load that a restore does not fix, an interrupted update:
+# textures, a crash on world load that a restore does not fix, an interrupted update --
+# with `/pz version validate`, or by hand:
 #
 #   sudo systemctl stop pzserver.service
 #   sudo systemctl start pz-update-validate.service   # blocks; watch with journalctl -fu
@@ -19,6 +20,7 @@
 Description=Validate and repair the Project Zomboid install via SteamCMD (manual, slow)
 After=network-online.target opt-pz-data.mount
 Wants=network-online.target
+RequiresMountsFor=/opt/pz/data
 Conflicts=pzserver.service
 
 [Service]
@@ -27,5 +29,6 @@ RemainAfterExit=no
 User=pzuser
 Group=pzuser
 TimeoutStartSec=3600
-ExecStart=/usr/games/steamcmd +login anonymous +force_install_dir /opt/pz/server +app_update 380870 validate +quit
-SuccessExitStatus=0 6 7
+ExecStart=/opt/pz/bin/pz-update.sh --validate
+# Like pz-update-now.service and unlike the start path: somebody asked for this and is
+# waiting on the answer, so a Steam failure must be reported as one.

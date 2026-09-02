@@ -14,5 +14,7 @@ output "ssm_document_arns" {
     aws_ssm_document.config_write.arn,
     aws_ssm_document.sandbox.arn,
     aws_ssm_document.idle_retune.arn,
+    aws_ssm_document.version.arn,
+    aws_ssm_document.mods.arn,
   ]
 }

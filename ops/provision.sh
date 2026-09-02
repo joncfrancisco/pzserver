@@ -134,6 +134,31 @@ systemctl enable pz-config.service
 systemctl restart pz-config.service
 [[ -r /etc/pz/env ]] || die "/etc/pz/env was not written; see: journalctl -u pz-config.service"
 
+# --- Which build to install ------------------------------------------------------------------
+
+# Seeded only if absent -- this file records an admin's decision about which Steam branch
+# this world runs on and whether updates are held, and a re-provision must never quietly
+# move a pinned box back onto the latest public build. An empty PZ_STEAM_BRANCH means
+# "never pinned", which is not the same as `public`: pz-update.sh passes no -beta flag at
+# all, which is byte-for-byte the invocation this stack has always used.
+if [[ ! -e "$DATA_MNT/version.conf" ]]; then
+  log "seeding $DATA_MNT/version.conf (unpinned, updates on)"
+  # Via a temp file rather than `install /dev/stdin`: the source of a heredoc is a pipe,
+  # and install's handling of a non-regular source is not something to find out about on
+  # a box with no SSH.
+  version_tmp="$(mktemp)"
+  cat >"$version_tmp" <<'VERSIONEOF'
+# See /opt/pz/bin/pz-version.sh. Change it with `/pz version` from Discord rather than by
+# hand, so the change is audited and the game is stopped around it.
+PZ_STEAM_BRANCH=
+PZ_UPDATE_HOLD=0
+VERSIONEOF
+  install -m 0644 -o root -g root "$version_tmp" "$DATA_MNT/version.conf"
+  rm -f "$version_tmp"
+else
+  log "$DATA_MNT/version.conf already exists -- leaving the branch pin alone"
+fi
+
 # --- Game files ---------------------------------------------------------------------------
 
 # Run the updater synchronously on a first provision so that provisioning either produces

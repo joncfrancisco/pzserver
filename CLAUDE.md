@@ -52,8 +52,11 @@ infra/
     observability/         ← alarms, EventBridge state-change rule, tag-scoped budget
 ops/                       ← everything that runs on the game server; uploaded to S3 by TF
   provision.sh             ← IDEMPOTENT provisioner: first boot, SSM re-run, and Packer later
-  systemd/                 ← opt-pz-data.mount, pz-config, pz-update, pzserver, watchdog, backup
-  bin/                     ← pz-rcon (vendored), start/stop, preflight, backup, restore, watchdog
+  systemd/                 ← opt-pz-data.mount, pz-config, pzserver, watchdog, backup, and
+                             three update units: pz-update (start path), pz-update-now and
+                             pz-update-validate (manual, not enabled)
+  bin/                     ← pz-rcon (vendored), start/stop, preflight, backup, restore,
+                             watchdog, pz-update.sh, pz-version.sh, pz-mod-tool.py
   etc/cloudwatch-agent.json
 ```
 
@@ -97,6 +100,34 @@ on the open internet it is a full-control backdoor. Only UDP 16261–16262 faces
 - **`provision.sh` must stay idempotent**, and must only ever `mkfs` a device with no
   filesystem on it. That single condition is what stands between a re-provision and the
   deletion of the world.
+- **The version pin lives on the DATA volume, not in SSM.** `/opt/pz/data/version.conf`
+  holds the Steam branch and the update hold. That is not an inconsistency with "config
+  goes in SSM": everything in SSM is a decision about the *host* and is re-rendered every
+  boot, whereas the branch is a decision about the *world* — a B41 save needs a B41 server,
+  and separating them means the save does not open. Keeping it beside the world is what
+  makes it survive an instance rebuild, and it is also the only door the bot has, since
+  `pz-bot-role` has no `ssm:PutParameter`.
+- **Two update holds, both deliberate.** `PZ_UPDATE_HOLD=1` in `version.conf` survives a
+  rebuild; `/opt/pz/skip-update` (the `ConditionPathExists` on `pz-update.service`) still
+  works when the data volume has not mounted. Do not collapse them "for consistency".
+- **Leaving a Steam beta needs `-beta public` explicitly.** Steam records the branch in the
+  app manifest's `UserConfig`, so dropping the flag does not revert. Hence `pz-version.sh`
+  writes `public` into `version.conf` rather than clearing the line — and hence an *empty*
+  branch (never pinned; no `-beta` flag at all, the stock invocation) is a different state
+  from `public`.
+- **SteamCMD must run as `pzuser`, never as root.** SSM runs commands as root, so
+  `/pz version update` goes through `pz-update-now.service` rather than calling
+  `pz-update.sh` directly; a root-owned file in `/opt/pz/server` is one the service account
+  cannot rewrite on the next update. `User=pzuser` on the unit is the whole reason that
+  indirection exists.
+- **`Mods=` and `WorkshopItems=` are two lists that are not one-to-one.** One Workshop item
+  can ship several mods, and the `.ini` records no association between them, so
+  `pz-mod-tool.py` keeps one in `<name>_pzbot-mods.json` beside the `.ini` (inside the
+  backup set, on purpose). It is bookkeeping, never authority: every action re-reads the
+  `.ini` and reconciles, and an entry the manifest has not seen is reported, not dropped.
+- **A Workshop item with nothing in `Mods=` is installed and loads nothing.** The mod ids
+  are inside the item, so they are unreadable until the server has downloaded it — which is
+  why adding a mod without its Mod IDs costs two restarts and why `scan` exists.
 - **`game_instance_type` and `game_xmx` must move together.** Nothing links them;
   `pz-preflight.sh` asserts `-Xmx` ≤ 75% of RAM at boot and refuses to start otherwise,
   which is the failure you want instead of an OOM three hours into a session.
@@ -115,6 +146,8 @@ on the open internet it is a full-control backdoor. Only UDP 16261–16262 faces
 - [infra/modules/game-server/config.tf](infra/modules/game-server/config.tf) — the SSM answer to C6
 - [infra/modules/dns/main.tf](infra/modules/dns/main.tf) — the shared-zone record and why it is a data source
 - [ops/provision.sh](ops/provision.sh) — the idempotent host build
+- [ops/bin/pz-update.sh](ops/bin/pz-update.sh) — the only place SteamCMD is invoked
+- [ops/bin/pz-mod-tool.py](ops/bin/pz-mod-tool.py) — the two mod lists and what joins them
 - [ops/bin/pz-watchdog.sh](ops/bin/pz-watchdog.sh) — idle shutdown, session cap, metrics
 - [ops/bin/pz-restore.sh](ops/bin/pz-restore.sh) — the three guards on the riskiest operation
 - [INFRA.md](INFRA.md) — coexistence with foodblog, costs, gotchas

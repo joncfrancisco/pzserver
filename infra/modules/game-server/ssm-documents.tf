@@ -241,3 +241,95 @@ resource "aws_ssm_document" "idle_retune" {
     }]
   })
 }
+
+# --- Version upgrades and mods ---------------------------------------------------------
+#
+# The two documents below differ from the ones above in one visible way: every `{{ }}`
+# is QUOTED in the runCommand. SSM substitutes parameters as raw text, so an optional
+# parameter left at its `""` default vanishes under the shell's word splitting and the
+# tool sees a SHORTER argv than it was called with -- `pz-mod-tool.py <ini> add 123` where
+# `<ini> add 123 ""` was sent. The tools above tolerate that by index; these two have
+# genuinely optional trailing parameters, so quoting (which the allowedPatterns make safe
+# -- none of them admits a quote, a backslash or a shell metacharacter) is what keeps argc
+# fixed and the parsing honest.
+
+resource "aws_ssm_document" "version" {
+  name            = "${var.name_prefix}-version"
+  document_type   = "Command"
+  document_format = "JSON"
+
+  content = jsonencode({
+    schemaVersion = "2.2"
+    description   = "Report or change which Project Zomboid build this server runs."
+    parameters = {
+      action = {
+        type        = "String"
+        description = "status, hold, unhold, branch, update or validate"
+        # `update` and `validate` invoke SteamCMD; `branch` only records the pin. There
+        # is deliberately no action here that starts or stops the game -- the bot
+        # sequences those through the lifecycle document, so a version change is visible
+        # in the audit log as the several things it actually is.
+        allowedValues = ["status", "hold", "unhold", "branch", "update", "validate"]
+      }
+      branch = {
+        type           = "String"
+        description    = "Steam branch name, for action=branch. Empty for every other action."
+        default        = ""
+        allowedPattern = "^[A-Za-z0-9._-]{0,32}$"
+      }
+    }
+    mainSteps = [{
+      action = "aws:runShellScript"
+      name   = "runVersion"
+      inputs = {
+        # A `validate` re-checksums a several-gigabyte install over gp3 at baseline
+        # throughput. It is the slowest thing this stack does on purpose.
+        timeoutSeconds = "3600"
+        runCommand     = ["/opt/pz/bin/pz-version.sh \"{{ action }}\" \"{{ branch }}\""]
+      }
+    }]
+  })
+}
+
+resource "aws_ssm_document" "mods" {
+  name            = "${var.name_prefix}-mods"
+  document_type   = "Command"
+  document_format = "JSON"
+
+  content = jsonencode({
+    schemaVersion = "2.2"
+    description   = "List, add or remove Workshop mods for this stack's server."
+    parameters = {
+      action = {
+        type          = "String"
+        description   = "list, add, remove or scan"
+        allowedValues = ["list", "add", "remove", "scan"]
+      }
+      workshopId = {
+        type           = "String"
+        description    = "Steam Workshop item id, for add and remove"
+        default        = ""
+        allowedPattern = "^[0-9]{0,12}$"
+      }
+      modIds = {
+        type        = "String"
+        description = "Comma-separated mod ids the item ships, for add. Empty means: work them out from the downloaded item."
+        default     = ""
+        # Commas separate; everything else mirrors pz-mod-tool.py's own MOD_ID rule. The
+        # `-` is last so it is a literal and not a range. 400 characters is roughly six
+        # mod ids, which is the largest single Workshop item worth typing by hand.
+        allowedPattern = "^[A-Za-z0-9_.,-]{0,400}$"
+      }
+    }
+    mainSteps = [{
+      action = "aws:runShellScript"
+      name   = "runMods"
+      inputs = {
+        timeoutSeconds = "120"
+        runCommand = [
+          "python3 /opt/pz/bin/pz-mod-tool.py ${local.ini_path} \"{{ action }}\" \"{{ workshopId }}\" \"{{ modIds }}\"",
+        ]
+      }
+    }]
+  })
+}

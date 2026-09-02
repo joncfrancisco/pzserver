@@ -77,6 +77,12 @@ jobs:
         # pz-rcon has no extension: it is the vendored Python RCON client, not shell.
         run: shellcheck ops/bin/*.sh ops/provision.sh
 
+      # Same argument as `bash -n` above, for the other half of ops/bin. These are
+      # invoked by SSM documents rather than by units, so a syntax error surfaces as a
+      # /pz command that fails in Discord with a Python traceback in the embed.
+      - name: Compile the Python tools
+        run: python3 -m py_compile ops/bin/*.py ops/bin/pz-rcon
+
   line-endings:
     runs-on: ubuntu-latest
     steps:

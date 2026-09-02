@@ -431,14 +431,130 @@ terraform -chdir=infra apply -var-file=prod.tfvars
 growth bites — RAM runs out before cores do. If you change the type without changing
 `game_xmx`, the boot-time assertion in `pz-preflight.sh` refuses to start and says why.
 
-### Pinning the PZ build
+### Game version: pinning, updating, switching branch
 
-When a Steam update breaks something and you need the world up on the version that worked:
+Normally this is `/pz version` from Discord, which takes a backup, stops the game, does the
+work and brings it back up. What follows is the same thing by hand.
+
+**Which build is on the box, and is it going to change on its own:**
+
+```bash
+sudo /opt/pz/bin/pz-version.sh status     # one JSON object; also what /pz version status reads
+```
+
+**Pin the build that is on there now** — the thing to reach for when a Steam update breaks
+something and you need the world up on the version that worked:
+
+```bash
+sudo /opt/pz/bin/pz-version.sh hold       # PZ_UPDATE_HOLD=1 in /opt/pz/data/version.conf
+sudo /opt/pz/bin/pz-version.sh unhold     # resume updating on the next start
+```
+
+There is a second, older brake, and it is kept on purpose:
 
 ```bash
 sudo touch /opt/pz/skip-update     # pz-update.service is ConditionPathExists=!this
 sudo rm /opt/pz/skip-update        # resume updating
 ```
+
+The difference is which volume they live on. The `hold` above is on the **data** volume, so
+it survives an instance rebuild along with the world it is protecting. `skip-update` is on
+the **root** volume, so it still works when the data volume has not mounted — which is
+exactly the situation in which you least want an unattended update. `unhold` clears both.
+
+**Update now,** outside the start path — the game must be stopped:
+
+```bash
+sudo systemctl stop pzserver.service
+sudo /opt/pz/bin/pz-version.sh update      # ignores the hold; that is what "now" means
+sudo systemctl start pzserver.service
+```
+
+**Switch Steam branch.** This is the save-breaking one: branches are different *versions of
+the game*, a Build 41 save opened by Build 42 is converted and cannot go back, and a Build
+42 save will not open on 41 at all. **Take a backup first** — `/pz version branch` does it
+for you and refuses the switch if it fails.
+
+```bash
+sudo /opt/pz/bin/pz-backup.sh manual before-branch-switch
+sudo systemctl stop pzserver.service
+sudo /opt/pz/bin/pz-version.sh branch b41multiplayer   # records the pin; downloads nothing
+sudo /opt/pz/bin/pz-version.sh update                  # this is what downloads it
+sudo systemctl start pzserver.service
+```
+
+Note the two steps. `branch` writes the pin to `version.conf` and stops; nothing is
+downloaded until an update runs. Between the two, `status` shows the pinned branch and the
+installed branch disagreeing, which is the honest report of that state rather than a bug.
+
+**Getting back off a beta needs `-beta public` explicitly** — Steam records the branch in
+the app manifest, so simply not passing the flag leaves you on the beta. `pz-version.sh
+branch public` is that; it is not the same as an *empty* branch in `version.conf`, which
+means "never pinned, pass no flag at all".
+
+**A corrupt install** — missing textures, a crash on world load that a restore does not
+fix, an interrupted update — is the one case for the slow path, which re-checksums every
+file of a several-gigabyte install against Steam:
+
+```bash
+sudo systemctl stop pzserver.service
+sudo /opt/pz/bin/pz-version.sh validate    # or: systemctl start pz-update-validate.service
+sudo systemctl start pzserver.service
+```
+
+It is off the start path deliberately: it added a minute or more of billed instance time to
+the front of every session to catch a once-a-year problem.
+
+### Workshop mods
+
+`/pz mods` from Discord is the intended route — it takes the `before-mods` backup, stops
+the game, edits, and restarts. By hand:
+
+```bash
+INI=/opt/pz/data/Zomboid/Server/pzprod.ini
+TOOL="python3 /opt/pz/bin/pz-mod-tool.py $INI"
+
+sudo $TOOL list
+sudo $TOOL add 2169435993 "Authentic_Z,AuthenticZ_Clothing"   # Mod IDs from the Workshop page
+sudo $TOOL add 2392709985 ""                                  # work them out from the download
+sudo $TOOL remove 2169435993
+sudo $TOOL scan
+```
+
+Everything prints one JSON object, including the mod list as it stands afterwards.
+
+**Two lists, and they mean different things.** `WorkshopItems=` is what the server
+downloads; `Mods=` is what the game loads, in load order. They are not one-to-one — a
+Workshop item can ship several mods — so the tool keeps the association in
+`<name>_pzbot-mods.json` beside the `.ini`. That file is inside the backup set, so a restore
+brings the mod list and its provenance back with the world.
+
+**An item added without its Mod IDs is listed and loads nothing** until the server has
+downloaded it and something has read the ids out of it. That is what `scan` is for, and it
+is why adding a mod that way costs two restarts:
+
+```bash
+sudo $TOOL add 2392709985 ""      # writes WorkshopItems= only
+sudo systemctl restart pzserver   # the server downloads the item
+sudo $TOOL scan                   # now the ids are readable; writes Mods=
+sudo systemctl restart pzserver   # PZ reads Mods= at start, so it needs another one
+```
+
+Supplying the Mod IDs from the Workshop page skips all of that.
+
+**If a mod change stops the server starting**, that is the usual failure and it looks like
+a world that never answers RCON. The previous `.ini` is on the box as `*.ini.pzbot.bak`,
+and the `before-mods` backup is in S3:
+
+```bash
+sudo journalctl -u pzserver -n 100        # the mod that would not load names itself here
+sudo cp /opt/pz/data/Zomboid/Server/pzprod.ini.pzbot.bak "$INI"
+sudo systemctl start pzserver.service
+```
+
+**Removing a mod is the more dangerous direction, not the safer one.** Anything it spawned
+into the map goes with it, and a world that used it may not open afterwards — which is why
+`/pz mods remove` takes the same backup and the same confirmation as adding one.
 
 ### Seeing what happened (instead of being told)
 

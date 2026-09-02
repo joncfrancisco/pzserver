@@ -1,0 +1,32 @@
+# An update, on demand, outside the start path.
+#
+# NOT enabled and NOT wanted by anything. This is what `/pz version update` starts, and
+# the one path that ignores a hold -- which is the point: holding the build is a decision
+# to skip the AUTOMATIC update, not a decision that the box may never be updated again.
+# Lifting the hold to take one update and then setting it again would be three commands
+# where one will do, and the middle one is easy to forget.
+#
+# It exists as a unit rather than as a bare `pz-update.sh --force` over SSM because SSM
+# runs commands as ROOT, and SteamCMD run as root leaves root-owned files in
+# /opt/pz/server that the pzuser service account cannot rewrite on the next update.
+# `User=pzuser` here is the whole reason for the indirection.
+[Unit]
+Description=Update the Project Zomboid dedicated server now (manual, ignores the hold)
+After=network-online.target opt-pz-data.mount
+Wants=network-online.target
+RequiresMountsFor=/opt/pz/data
+# SteamCMD rewriting files beneath a running JVM is its own kind of corruption.
+Conflicts=pzserver.service
+
+[Service]
+Type=oneshot
+# `no`, unlike pz-update.service: this unit is started repeatedly, and a oneshot that
+# stayed "active (exited)" would report success without doing anything on the second run.
+RemainAfterExit=no
+User=pzuser
+Group=pzuser
+TimeoutStartSec=1800
+ExecStart=/opt/pz/bin/pz-update.sh --force
+# Deliberately NOT SuccessExitStatus=0 6 7. On the start path a Steam outage must not stop
+# people playing on the build they have; here somebody asked for an update and is waiting
+# to be told whether they got one, so a Steam failure is a failure.

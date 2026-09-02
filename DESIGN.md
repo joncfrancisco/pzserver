@@ -248,14 +248,17 @@ Two options for getting a configured host:
 ```
 /opt/pz/server/            # SteamCMD-installed PZ dedicated server (root volume, rebuildable)
 /opt/pz/data/              # EBS data volume mount point
+  version.conf             # which Steam branch, and whether updates are held
   Zomboid/
     Server/
       <name>.ini           # RCONPort, RCONPassword, Mods=, WorkshopItems=, Public=, etc.
       <name>_SandboxVars.lua
       <name>_spawnpoints.lua
       <name>_spawnregions.lua
+      <name>_pzbot-mods.json    # which Mods= entries came from which Workshop item
     Saves/Multiplayer/<name>/   # THE WORLD
     db/                     # player accounts / whitelist
+    steamapps/workshop/content/108600/   # Workshop items the server downloaded
 /opt/pz/bin/               # backup.sh, restore.sh, watchdog.sh, rcon wrapper
 /home/pzuser/Zomboid  ->   /opt/pz/data/Zomboid   (symlink)
 ```
@@ -268,8 +271,9 @@ The `~/Zomboid` symlink matters: PZ hardcodes that path, so pointing it at the d
 instance start
   └─ systemd
       ├─ pz-data.mount              (EBS data volume; After=, Requires= for everything below)
-      ├─ pz-update.service          (oneshot: steamcmd +app_update 380870 validate)
-      │                              guarded by /opt/pz/skip-update flag file
+      ├─ pz-update.service          (oneshot: pz-update.sh -> steamcmd +app_update 380870)
+      │                              branch and hold read from /opt/pz/data/version.conf;
+      │                              also guarded by the /opt/pz/skip-update flag file
       ├─ pzserver.service           (Type=simple, Restart=on-failure, RestartSec=30)
       │    ExecStart=/opt/pz/server/start-server.sh with -Xmx from /etc/pz/env
       │    ExecStop=/opt/pz/bin/rcon save && /opt/pz/bin/rcon quit   ← graceful, not SIGKILL
@@ -290,6 +294,51 @@ PZ_XMX=12g    # m7i.xlarge (16 GiB) — leave ~4 GiB for OS + page cache
 ```
 
 Add a boot-time assertion that `-Xmx` is at most 75% of `MemTotal`, log loudly and refuse to start otherwise. This turns the most common PZ hosting mistake into an obvious failure instead of a mysterious crash three hours into a session.
+
+### Game version and Workshop mods
+
+Both change what **code** the world runs, as opposed to what the world is *like*, and both
+can leave a save that will not open. They are designed as one thing for that reason.
+
+**Which build.** `/opt/pz/data/version.conf` holds two values — the Steam branch to track,
+and whether updates are held. It is on the **data volume**, not the root volume, because it
+records a decision about the world rather than about the disposable OS disk: rebuild the
+instance and the pin comes back with the save that needs it. `pz-update.sh` is the only
+place SteamCMD is invoked from; the start path, a manual update and a `validate` are the
+same script with different flags.
+
+An empty branch means *never pinned* — no `-beta` flag at all, which is the stock
+invocation. `public` is an explicit pin to the default branch, and that distinction is not
+pedantry: Steam records the branch in the app manifest's `UserConfig`, so dropping the flag
+does **not** leave a beta. Coming back off one means passing `-beta public` on purpose.
+
+Two independent holds, and they are not redundant. `PZ_UPDATE_HOLD=1` in `version.conf`
+survives an instance rebuild; `/opt/pz/skip-update` on the root volume still works when the
+data volume has not mounted, which is exactly when an unattended update is least welcome.
+
+**Which mods.** The `.ini` carries two parallel lists that are not one-to-one:
+`WorkshopItems=` is what the server downloads, `Mods=` is what the game loads, in load
+order. One Workshop item can ship several mods, and a mod id is not derivable from a
+Workshop id without reading the downloaded item — so "remove that armour mod" needs an
+association the `.ini` does not record. `pz-mod-tool.py` keeps it in a sidecar manifest
+beside the `.ini`, which puts it inside the backup set (`Saves/` + `Server/` + `db/`), so a
+restore brings back the mod list and its provenance along with the world that needs them.
+
+The manifest is bookkeeping and never authority. Every action re-reads the `.ini` and
+reconciles against it, and an entry the manifest has not heard of is **reported** rather
+than quietly dropped — somebody editing the `.ini` by hand is a thing that happens.
+
+**Adding a mod nobody has downloaded yet** is the awkward case, and the one worth spelling
+out. The mod ids live inside an item that is not on disk, so the first pass can only write
+`WorkshopItems=`; the server downloads the item on the next start; only then can `Mods=` be
+filled in — and PZ read `Mods=` before that happened. So it is two restarts, and the bot
+does both rather than leaving the world in the state where a mod is installed, listed, and
+loading nothing. Supplying the Mod IDs from the Workshop page skips the second one.
+
+**Every change here takes a labelled backup first and abandons the change if it fails.**
+That is the difference from `/pz stop`, which stops anyway when its backup fails: there the
+backup is a bonus on top of the save `ExecStop` performs regardless, here it is the entire
+reason a bad mod or a B41-to-B42 branch switch is survivable.
 
 ### Readiness
 
@@ -346,7 +395,7 @@ No `s3:DeleteObject`. The game server can write backups but not remove them; ret
 
 Runs as `pzbot.service` under systemd on the bot host, `Restart=always`.
 
-### Command surface (v1)
+### Command surface
 
 | Command | Tier | Behavior |
 |---|---|---|
@@ -363,6 +412,16 @@ Runs as `pzbot.service` under systemd on the bot host, `Restart=always`.
 | `/pz config get\|set <key> [value]` | **admin** | Read/write a small allowlist of `.ini` keys, then RCON `reloadoptions`. Allowlist only — no arbitrary `.ini` editing from chat. |
 | `/pz idle <minutes\|off>` | **admin** | Adjust the idle-shutdown timeout for this session or persistently. |
 | `/pz cost` | player | Month-to-date spend and hours, from Cost Explorer or a local accumulator. |
+| `/pz sandbox get\|set` | player / **admin** | `SandboxVars.lua` — the world's rules. Both halves of the picker autocompleted; restarts to apply. |
+| `/pz version status` | player | Installed build id, Steam branch, whether updates are held. |
+| `/pz version hold\|unhold` | **admin** | Pin the build on disk, or resume updating on the next start. |
+| `/pz version update [validate:true]` | **admin** | Back up → stop → SteamCMD → start. `validate` re-checksums the install; slow, for a corrupt one. |
+| `/pz version branch <name>` | **admin** | Switch Steam branch. Two-step confirm — this is the save-breaking one. |
+| `/pz mods list` | player | Workshop items, and which `Mods=` entries each contributes. |
+| `/pz mods add <id> [mod-ids]` | **admin** | Two-step confirm, `before-mods` backup, restart. Two restarts if the ids have to be discovered. |
+| `/pz mods remove <id>` | **admin** | Same, and autocompleted from what is installed. The more dangerous direction. |
+| `/pz mods scan` | **admin** | Attribute Workshop items the server has downloaded since they were added. |
+| `/pz mods check` | **admin** | RCON `checkModsNeedUpdate`. PZ answers into its own log; this says so. |
 
 ### Permission model
 
@@ -477,10 +536,10 @@ AWS Budgets on the stack's tag, monthly, with SNS alerts at 50% / 80% / 100% of 
 
 ## 13. Out of scope for v1
 
-Named here so the boundary is deliberate rather than accidental. Both are natural v2 additions, and the v1 command dispatcher and permission model should be built so neither requires a redesign:
+Named here so the boundary is deliberate rather than accidental. Both were natural v2 additions, and the v1 command dispatcher and permission model were built so neither would require a redesign:
 
-- **In-game moderation** — `kickuser`, `banuser`, `teleport`, `additem`, `godmode`, whitelist management. All are RCON one-liners; the work is the permission model and the audit trail, not the plumbing.
-- **Workshop mod management** — `Mods=` / `WorkshopItems=` editing, `checkModsNeedUpdate` polling, safe restart-on-mod-update, and save-compatibility warnings. This one is genuinely harder than it looks: mod updates can corrupt saves, so it needs the pre-update backup path (which v1 already builds) plus a real "are you sure" flow.
+- **In-game moderation** — `kickuser`, `banuser`, `teleport`, `additem`, `godmode`, whitelist management. All are RCON one-liners; the work is the permission model and the audit trail, not the plumbing. **Still out of scope.**
+- ~~**Workshop mod management**~~ — **delivered**, together with game version upgrades. It was deferred on the grounds that "mod updates can corrupt saves, so it needs the pre-update backup path (which v1 already builds) plus a real 'are you sure' flow" — and that is exactly what it was built on: `_backup_before` refuses the change when the backup fails, and every mutating command is behind a two-step confirmation that names what it is about to do. See [§8 Game version and Workshop mods](#game-version-and-workshop-mods) for the design and §10 for the commands. The prediction that it is "harder than it looks" held up: the sharp edge turned out not to be editing the `.ini` but the fact that a Workshop id does not tell you what is inside it until the server has downloaded it.
 
 ---
 
