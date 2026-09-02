@@ -269,8 +269,9 @@ ec2:StartInstances
   └─ systemd
       ├─ opt-pz-data.mount        the world's filesystem, mounted by LABEL=pzdata
       ├─ pz-config.service        oneshot: SSM → /etc/pz/env  (0600 root)
-      ├─ pz-update.service        oneshot: steamcmd +app_update 380870 validate
-      │                           skipped if /opt/pz/skip-update exists
+      ├─ pz-update.service        oneshot: pz-update.sh → steamcmd +app_update 380870
+      │                           branch + hold from /opt/pz/data/version.conf;
+      │                           also skipped if /opt/pz/skip-update exists
       ├─ pzserver.service         Type=simple, enabled, Restart=on-failure/RestartSec=30
       │     ExecStart  pz-start-server.sh  → preflight, patch -Xmx, exec PZ
       │     ExecStop   pz-stop-server.sh   → RCON save → RCON quit
@@ -283,8 +284,17 @@ ec2:StartInstances
 the bot never needs to send a command to start the game. The start path has exactly one
 failure point on purpose.
 
+Two more update units exist and are deliberately **not enabled**, because they must never
+run on the start path: `pz-update-now.service` (a forced update, ignoring the hold — what
+`/pz version update` starts) and `pz-update-validate.service` (the slow full re-checksum).
+Both are `Conflicts=pzserver.service`. They exist as units rather than as bare commands
+because SSM runs commands as **root**, and SteamCMD run as root leaves root-owned files in
+`/opt/pz/server` that the `pzuser` service account cannot rewrite on the next update;
+`User=pzuser` on the unit is the whole reason for the indirection.
+
 **Paths on the box:** PZ install `/opt/pz/server/` (root volume, rebuildable); world
-`/opt/pz/data/Zomboid/` (data volume); scripts `/opt/pz/bin/`; config `/etc/pz/env`;
+`/opt/pz/data/Zomboid/` (data volume); version pin `/opt/pz/data/version.conf` (data
+volume, so it survives a rebuild); scripts `/opt/pz/bin/`; config `/etc/pz/env`;
 watchdog state `/var/lib/pz/`; local backups `/var/lib/pz/backups/` (on the ROOT volume,
 deliberately — see the comment on `LOCAL_DIR` in `ops/bin/pz-backup.sh`).
 
@@ -299,6 +309,16 @@ instance retirement — arrives as ACPI shutdown → systemd stop → `pz-stop-s
 `save`, then `quit`. **There is no way to stop this box that skips a save.** If you ever
 find yourself adding a `--force` path that bypasses `systemctl stop`, you are removing
 this property.
+
+**The version pin lives on the data volume, and that is the point.** `version.conf` is the
+one piece of host configuration that is deliberately *not* in Parameter Store, which looks
+like an inconsistency and is not. Everything in SSM is a decision about the **host** —
+heap size, idle timeout — and is re-rendered from Terraform on every boot. The Steam branch
+is a decision about the **world**: a Build 41 save needs a Build 41 server, and if the two
+are separated the save does not open. Keeping it on the volume the save is on means an
+instance rebuild brings back the pin along with the world that depends on it. It also means
+the bot can change it without `ssm:PutParameter`, which `pz-bot-role` deliberately does not
+have.
 
 **Configuration is pulled from SSM on every boot, and that is load-bearing.**
 [DESIGN C6](DESIGN.md#3-constraints-that-shape-the-design) notes that `user-data` runs
@@ -476,6 +496,28 @@ against `MemTotal`, never against the instance type's marketing number.
   the password in `db/` after first run, so the argument could be dropped once set; it is
   kept because dropping it would break password rotation. Worth revisiting if a third
   local account ever appears.
+- **Two hold flags, and they are not redundant.** `PZ_UPDATE_HOLD=1` in
+  `/opt/pz/data/version.conf` (what `/pz version hold` writes) survives an instance
+  rebuild; `/opt/pz/skip-update` on the root volume still works when the data volume has
+  not mounted. Removing either "for consistency" removes a case the other does not cover.
+- **A branch pin is not applied until an update runs.** `/pz version branch` records the
+  branch and downloads nothing; the switch happens on the next update or start. Until
+  then `/pz version status` shows the pin and the installed branch disagreeing, which is
+  what that warning field exists for.
+- **Getting off a Steam beta needs `-beta public` explicitly.** Steam records the branch
+  in the app manifest's `UserConfig`, so simply dropping the flag leaves the box on the
+  beta. That is why `pz-version.sh` writes `public` into `version.conf` rather than
+  clearing the line, and why an *empty* branch (never pinned) and `public` are different
+  states.
+- **The mod manifest is bookkeeping, not authority.** `<name>_pzbot-mods.json` records
+  which `Mods=` entries came from which Workshop item — an association the `.ini` cannot
+  hold. Every action re-reads the `.ini` and reconciles; an entry the manifest has never
+  seen is reported, not dropped. Editing `Mods=` by hand does not corrupt anything, it
+  just costs the provenance for those entries.
+- **A Workshop item with nothing in `Mods=` loads nothing.** It is the most confusing
+  state in PZ mod management — installed, downloaded, and inert. It happens when an item
+  is added without its Mod IDs, because they live inside an item that is not on disk yet.
+  `/pz mods add` runs the second pass itself; `/pz mods scan` is the manual door.
 - **No SSH.** If SSM is broken, there is no way in. `provision.sh` warns if the SSM agent
   is not running; treat that warning as blocking.
 - **PZ is x86_64 only** ([C1](DESIGN.md#3-constraints-that-shape-the-design)). The game

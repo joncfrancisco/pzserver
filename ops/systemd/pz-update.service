@@ -1,8 +1,16 @@
 # SteamCMD update, before every start.
 #
-# Guarded by a flag file: `sudo touch /opt/pz/skip-update` pins the current build, which
-# is what you want when a PZ update has broken something and you need the world up on
-# the version that worked.
+# The invocation itself moved into /opt/pz/bin/pz-update.sh, which is now the only place
+# SteamCMD is called from: the boot path, the manual "update now" and the slow validate
+# are the same script with different flags, so "which build does this box install" has one
+# implementation rather than three that drift.
+#
+# TWO ways to pin the current build, and they are not redundant:
+#   * `/pz version hold` (or PZ_UPDATE_HOLD=1 in /opt/pz/data/version.conf), which lives on
+#     the DATA volume and so survives an instance rebuild along with the world;
+#   * `sudo touch /opt/pz/skip-update`, the ConditionPathExists below, which lives on the
+#     ROOT volume and so still works when the data volume has not mounted -- which is
+#     exactly when you least want an unattended update.
 [Unit]
 Description=Update the Project Zomboid dedicated server via SteamCMD
 After=network-online.target opt-pz-data.mount
@@ -10,25 +18,25 @@ Wants=network-online.target
 Before=pzserver.service
 ConditionPathExists=!/opt/pz/skip-update
 
+# The branch pin is read from /opt/pz/data/version.conf, so the mount is now load-bearing
+# for this unit and not merely ordered before it: without it a pinned box would silently
+# update itself onto the default branch, which for a B41 world is a save it cannot load.
+RequiresMountsFor=/opt/pz/data
+
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 User=pzuser
 Group=pzuser
 TimeoutStartSec=1800
-# ARGUMENT ORDER IS LOAD-BEARING: +login must come BEFORE +force_install_dir.
-# With force_install_dir first, SteamCMD authenticates fine, then rejects the app with
-# "ERROR! Failed to install app '380870' (Missing configuration)" -- a message that
-# points nowhere near the actual cause.
-#
 # NO `validate` HERE, deliberately. `+app_update` already compares the Steam manifest and
 # pulls deltas; `validate` additionally re-checksums every file of a several-gigabyte
 # install against it, which on a gp3 volume at baseline throughput adds a minute or more
 # of billed instance time to the front of EVERY session. All it buys is detection of
 # local file corruption -- a once-a-year problem that was being paid for daily, on the one
-# path the whole design exists to keep short. Run pz-update-validate.service by hand on
-# the day you actually suspect corruption.
-ExecStart=/usr/games/steamcmd +login anonymous +force_install_dir /opt/pz/server +app_update 380870 +quit
+# path the whole design exists to keep short. Run pz-update-validate.service (or
+# `/pz version validate`) on the day you actually suspect corruption.
+ExecStart=/opt/pz/bin/pz-update.sh
 # A Steam outage must not stop people playing on the build already on disk.
 SuccessExitStatus=0 6 7
 
