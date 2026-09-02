@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           # Matches the floor in versions.tf: 1.10+ for native S3 state locking.
           terraform_version: "1.13.1"
