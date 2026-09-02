@@ -696,6 +696,41 @@ first step rather than the one-liner the design implies.
 Trimmed deliberately — keep entries that change what a future run should *do*, and fold
 anything durable up into the step it belongs to.
 
+### 2026-09-02 — applied faeb892 + mod/version management feature, re-provisioned
+
+**Check `git status` against `origin/main` before trusting a local checkout is
+"latest".** Local `main` was 12 commits behind origin — including the entire
+mod/version management feature (#43) — with a clean working tree and no warning
+short of `git status`'s own "behind by 12" line. Deployed a smaller fix first, only
+noticed the gap afterward, and had to re-plan and re-apply. `git fetch && git status`
+(or `git log HEAD..origin/main`) belongs at the very start of any "deploy latest"
+run, before the first `terraform plan`.
+
+Two applies, both while the game server was stopped, each followed by a start →
+SSM re-provision → RCON/tooling verification → stop cycle, no players ever online:
+
+1. **faeb892** (scoped gameserver SSM reads) — 0 add / 2 change: IAM policy
+   narrowed, `pz-config-refresh.sh` re-uploaded.
+2. **#43** (mod/version management) — 6 add / 4 change: `pz-mod-tool.py`,
+   `pz-version.sh`, `pz-update.sh` uploaded; `pz-prod-mods` and `pz-prod-version`
+   SSM documents created; the bot's `SendCommandDocuments` IAM statement grew to
+   include them (purely additive — the "entire policy replaced" in `plan`'s diff
+   is just Terraform being unable to pre-compute a policy that embeds two ARNs
+   from resources created in the same apply, not a scope change).
+
+**A freshly-narrowed IAM policy isn't immediately consistent.** After apply 1,
+`pz-config.service` hit `AccessDeniedException` on `GetParametersByPath` for its
+first three systemd-driven restarts (~35s), then succeeded on the fourth — IAM
+propagation lag from the `apply` moments earlier, not a script/policy mismatch.
+`Restart=` in the unit absorbed it without intervention. Expected right after any
+policy change on this role; don't read a couple of `AccessDenied` lines
+immediately post-apply as the ordering bug faeb892 itself warns about — give it a
+minute before concluding the policy and script are out of sync.
+
+`provision.sh`'s new `version.conf` seeding logged correctly on re-provision:
+`seeding /opt/pz/data/version.conf (unpinned, updates on)` — confirms the
+seed-only-if-absent guard did not disturb a value an admin might already have set.
+
 ### 2026-08-23 — audit remediation (PZ-01 … PZ-21)
 
 **Re-provisioning restarts the game server.** `provision.sh` runs
