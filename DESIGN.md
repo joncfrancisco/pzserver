@@ -408,6 +408,7 @@ Runs as `pzbot.service` under systemd on the bot host, `Restart=always`.
 | `/pz save` | **admin** | RCON `save`. Immediate, no restart. |
 | `/pz backup now [label]` | **admin** | On-demand labeled backup without stopping. |
 | `/pz backup list` | player | Last N backups: timestamp, label, size, S3 key. |
+| `/pz backup download [backup]` | **admin** | Presigned S3 GET for one archive, newest by default. Ephemeral reply, short TTL, audited by name only. See §11. |
 | `/pz restore <backup-id>` | **admin** | Two-step confirm. Requires instance running with PZ **stopped**. Snapshots current state first. See §11. |
 | `/pz config get\|set <key> [value]` | **admin** | Read/write a small allowlist of `.ini` keys, then RCON `reloadoptions`. Allowlist only — no arbitrary `.ini` editing from chat. |
 | `/pz idle <minutes\|off>` | **admin** | Adjust the idle-shutdown timeout for this session or persistently. |
@@ -487,6 +488,22 @@ Three independent tiers, because they fail in different ways.
 Backup naming: `backups/<stack>/<YYYY-MM-DDTHH-MM-SSZ>__<trigger>__<label>.tar.zst`, where `trigger` is one of `scheduled|prestop|prerestore|manual`. Trigger in the key means you can find "the backup taken right before the thing that broke everything" without opening any of them.
 
 Archive size for a mature world is typically 200 MB – 2 GB. `zstd -10` gets good ratios at a fraction of `xz`'s CPU, which matters because compression runs on the same box that is running the game.
+
+### Getting an archive off the stack
+
+The tiers above describe archives nobody outside the stack can reach. Restore was their only consumer, so "can I have a copy of the world" had no answer short of handing someone AWS credentials. `/pz backup download` is that answer: a presigned S3 GET, rather than bytes moved through Discord — an archive is 200 MB – 2 GB against a 25 MB upload ceiling, so an attachment was never on the table.
+
+Three properties make it safe enough to expose from chat, and each is a decision rather than a default:
+
+- **Admin tier, and an ephemeral reply.** The archive contains `db/`, which is where PZ keeps player accounts. `/pz backup list` stays player tier because knowing an archive exists is not the same as being able to hold it.
+- **A short, fixed TTL** — 15 minutes by default, 60 at most, clamped where the URL is signed rather than only in the picker. A presigned URL is a bearer credential and there is no way to revoke one once it is out, so the ceiling is a security property, not an ergonomic one. It bounds the window to *start* a download: S3 checks the signature when the request opens, not while a 2 GB archive is still coming down the wire.
+- **Audited by name, never by URL.** The audit channel and journald both outlive a 15-minute link, so a URL written to either is a link that no longer expires.
+
+It needs no IAM beyond the `s3:GetObject` on `backups/*` that `pz-bot-role` already carries for restore (§9). A presigned URL is signed locally and evaluated against the role when it is *used*, so a signature can never reach an object the bot itself could not read — which also means this is the rare pzbot change that needs no apply here.
+
+It also never touches the game server: no RCON, no SSM, no `StartInstances`. The archive is in S3 whether or not an `m7i.xlarge` is running, and the moment somebody most wants a copy of the world is the moment the box is broken — so this works, and costs nothing, with the stack powered off.
+
+What it cannot do is invent a save that does not exist yet. While the server is running, the newest scheduled archive can be up to 30 minutes behind, so the reply says so and points at `/pz backup now`, which forces the RCON `save` this section's one non-negotiable rule requires. With the server stopped, the newest archive is the `prestop` one and nothing is missing from it.
 
 ### Restore flow
 
