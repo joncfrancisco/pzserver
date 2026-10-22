@@ -8,6 +8,189 @@ Everything here assumes the `default` AWS profile in `us-east-1`, and Terraform 
 
 ---
 
+## ⏸️ WOUND DOWN as of 2026-10-22 — read this before anything else
+
+**The stack is not running.** Both instances are terminated and both Elastic IPs are
+released, to stop paying ~$16.46/month for a server last played on 2026-09-05. The world
+was preserved, verified, and is waiting on disk. To bring it back, go to
+[Restarting after a wind-down](#restarting-after-a-wind-down).
+
+### What was destroyed
+
+| Resource | Was | Note |
+|---|---|---|
+| `pz-prod-game` `i-0c319547d110e4179` | `m7i.xlarge`, stopped | terminated; `disable_api_termination` had to be cleared first |
+| `pz-prod-bot` `i-09158ffe716ee3c5e` | `t4g.nano`, running | `pzbot.service` stopped and disabled cleanly first |
+| `pz-prod-root` `vol-028bab2e5481ccc1a` | 30 GB game root | deleted on termination (`DeleteOnTermination=true`), as designed — `provision.sh` rebuilds it |
+| `pz-prod-bot-root` `vol-0e402f33ea4ea5b5e` | 8 GB bot root | same; `deploy/install.sh` rebuilds it |
+| `pz-prod-eip` `eipalloc-015a3dbf3d1db4ee0` | `34.233.59.251` | released |
+| `pz-prod-bot-eip` `eipalloc-00ba1ccf3133bf357` | `100.49.200.102` | released |
+
+### What was kept — three independent copies of the world
+
+| What | Id | Verified |
+|---|---|---|
+| **The live world volume** (authoritative) | `vol-09e3f5065531b0ccb`, 30 GB, `available`, unattached | mounted read-write, 20,713 save files, cleanly unmounted |
+| **Archival snapshot, final** | `snap-06c94098a569b5849` | `completed`, 3,573 blocks (~1.75 GB); taken from the quiesced volume |
+| **Archival snapshot, pre-edit** | `snap-04b0b0513a3a777e1` | `completed`, 3,573 blocks; **mounted read-only on a live host and confirmed to contain the world** |
+| **S3 archive copy** | `s3://pz-prod-backups-020949219706/archive/winddown-2026-10-22/2026-09-05T06-45-04Z__prestop__idle-for-30m.tar.zst` | downloaded, fully decompressed, `Saves/`+`Server/`+`db/` all present, both SQLite DBs `integrity_check=ok`, sha256 identical to the original |
+
+Also kept and needed on restart: the S3 bucket, all 21 `/pz/prod/*` SSM parameters
+(including the Discord token and both passwords), the VPC/subnet/IGW/security groups (free),
+the DLM policy, the Lambda alert relay, the `pz` DNS record, and the Terraform state.
+
+**Both archival snapshots carry `keep=forever` and are NOT DLM-managed**, so nothing
+expires them. That tag is load-bearing — see the retention trap below.
+
+### Why a plain "stop everything" would have lost the world
+
+Every automatic copy of this world is on a deletion clock:
+
+- the **DLM policy retains 7 snapshots** and takes one a day, so the whole T3 tier
+  rotates out in a week;
+- **every lifecycle rule on the backup bucket expires objects under `backups/`** — 21 days
+  for `keep=short`, 180 days for `keep=long`, and a 180-day floor rule for untagged
+  objects. The newest archive is a `prestop` (`keep=long`), and S3 reported
+  `expiry-date="Fri, 05 Mar 2027"` on it.
+
+So a wind-down that just stopped the instances and walked away would have had **no copy of
+the world left by March 2027**. Hence the two manual snapshots and the S3 copy under
+`archive/`, a prefix no lifecycle rule matches (`Expiration: null`, confirmed).
+
+### Two things that were changed on purpose
+
+1. **`PZ_UPDATE_HOLD` is now `1`** in `/opt/pz/data/version.conf` (previous file kept
+   beside it as `version.conf.bak-winddown-20261022`). `PZ_STEAM_BRANCH` is still empty —
+   never pinned, the stock invocation, which per the gotcha in
+   [CLAUDE.md](CLAUDE.md) is a *different state* from `public`.
+
+   The reason: the hold was `0`, so the first start after the wind-down would have run
+   SteamCMD and installed whatever the newest build is. Restarting months from now could
+   pull a build that will not open this save. The hold lives on the data volume, so it
+   survives the instance rebuild. **It also means the game will not update until you lift
+   it** — that is the point, but do not then spend an afternoon wondering why `/pz version`
+   reports an old build.
+
+2. **All 8 CloudWatch alarm actions are disabled.** Terminating the instances would
+   otherwise have driven `pz-prod-bot-heartbeat-missing` and friends into alarm and mailed
+   the `pz-prod-alerts` topic indefinitely, and three alarms carry EC2 actions
+   (`reboot`, `recover`, `stop`) that should not fire at a half-built stack during the
+   restart. **Re-enabling them is a step in the restart procedure**, not something
+   Terraform will do for you — `ActionsEnabled` is set out of band and `terraform apply`
+   will not reconcile it.
+
+### What it costs now
+
+| | Monthly |
+|---|---|
+| World volume, 30 GB gp3 @ $0.08 | $2.40 |
+| Snapshots (~1.75 GB of unique blocks, heavily shared across all 9) | ~$0.15 |
+| S3, 92.7 MB | ~$0.01 |
+| VPC, subnet, IGW, security groups, SSM Standard params, idle Lambda | $0.00 |
+| **Total** | **~$2.56** |
+| *was* | *~$16.46* |
+
+About 84% off the fixed floor. The remaining $2.40 is the price of keeping the
+authoritative world volume rather than trusting only the archives; deleting it would take
+this under $0.20/month and is a one-line change to step 3 below, but `prevent_destroy` is
+on that volume deliberately.
+
+### Known loose end
+
+`pz.joncfrancis.co` still resolves to `34.233.59.251`, which has been released back to
+AWS. The record is harmless for a game server — no TLS, no cookies, no auth — but it will
+point at a stranger's instance until the next `terraform apply` rewrites it to the new
+EIP. Remove it now with the command below if you would rather it not; Terraform will
+recreate it on restart either way.
+
+```bash
+# optional: retire the dangling record (zone Z02575211T1QV3GILBPJH is SHARED with foodblog —
+# this touches ONLY the pz name; never the apex or www)
+aws route53 change-resource-record-sets --hosted-zone-id Z02575211T1QV3GILBPJH \
+  --change-batch '{"Changes":[{"Action":"DELETE","ResourceRecordSet":{
+    "Name":"pz.joncfrancis.co.","Type":"A","TTL":300,
+    "ResourceRecords":[{"Value":"34.233.59.251"}]}}]}'
+```
+
+---
+
+## Restarting after a wind-down
+
+This is [G6](DESIGN.md#goals) exercised for real. The world volume still exists and is
+still in Terraform state, so this is an `apply`, not a restore — **do not reach for
+[Restore](#restore)**; that would roll the world back to the 2026-09-05 archive and lose
+PZ's final quit-time writes (see the note at the end of this section).
+
+```bash
+# 1. Confirm the world is still there before building anything around it.
+aws ec2 describe-volumes --volume-ids vol-09e3f5065531b0ccb \
+  --query 'Volumes[0].{State:State,GB:Size,AZ:AvailabilityZone}'
+#    → State must be "available". If it is "in-use", something else grabbed it; stop.
+
+# 2. Recreate the compute. Terraform state still lists the terminated instances and the
+#    released EIPs, so refresh marks them gone and the plan is a create — EXPECT:
+#      + 2 instances, + 2 EIPs, + 1 volume attachment, ~ 1 DNS record
+#    and NO change to aws_ebs_volume.data. If the plan wants to replace or destroy that
+#    volume, STOP — prevent_destroy should refuse, and a plan that even proposes it means
+#    the state is wrong, not that the guard is in the way.
+terraform -chdir=infra init
+terraform -chdir=infra plan  -var-file=prod.tfvars
+terraform -chdir=infra apply -var-file=prod.tfvars
+
+# 3. The game server comes up on a NEW EIP; the apply above already rewrote the pz record
+#    to it. Confirm, then sanity-check the mount actually found the old world.
+terraform -chdir=infra output
+dig +short pz.joncfrancis.co
+GAME=$(terraform -chdir=infra output -raw game_instance_id)
+aws ssm start-session --target "$GAME"
+#   on the box:
+#     findmnt /opt/pz/data                 # must be the pzdata volume, not the root disk
+#     ls /opt/pz/data/Zomboid/Saves/Multiplayer/pzprod | head
+#     find /opt/pz/data/Zomboid/Saves -type f | wc -l     # expect 20713 (± your own play)
+#     cat /opt/pz/data/version.conf        # PZ_UPDATE_HOLD=1 until you lift it
+
+# 4. Re-enable the alarm actions. Terraform will NOT do this.
+for A in pz-prod-backup-stale pz-prod-bot-heartbeat-missing \
+         pz-prod-bot-instance-check-failed pz-prod-bot-system-check-failed \
+         pz-prod-data-disk-high pz-prod-memory-low-available \
+         pz-prod-runaway-auto-stop pz-prod-server-not-ready; do
+  aws cloudwatch enable-alarm-actions --alarm-names "$A"
+done
+
+# 5. Redeploy the bot — its host was rebuilt from scratch, so the code is not on it.
+#    See ../pzbot/DEPLOY.md; everything it needs is in:
+terraform -chdir=infra output bot_contract
+
+# 6. Decide about the game version BEFORE the first real session. The hold is on, so the
+#    server will start on the build the world was saved with. Lifting it may upgrade PZ.
+#      - keep it held      → do nothing
+#      - update on purpose → take a backup first, then `/pz version unhold` + `/pz version update`
+#                            from Discord, and be ready for the save not to load.
+```
+
+### `provision.sh` and the one condition that matters
+
+A fresh game instance runs `provision.sh` from `user_data`, and that script is the thing
+standing between a rebuild and the deletion of the world: **it only ever `mkfs` a device
+with no filesystem on it.** The restored volume has an `ext4` filesystem labelled
+`pzdata`, so it is mounted, not formatted. Do not "fix" that condition, and do not
+re-point the mount at a device path — the mount unit uses `/dev/disk/by-label/pzdata`
+because Nitro device numbering is not stable.
+
+### If the volume is gone and you are restoring from an archive
+
+Only then: create a volume from `snap-06c94098a569b5849` in `us-east-1a`, tag it
+`Name=pz-prod-data` / `pz:role=gameserver-data` (the DLM policy selects on that second
+tag), `terraform import` it over `module.game_server.aws_ebs_volume.data`, and apply. The
+S3 archive under `archive/winddown-2026-10-22/` is the last resort, and restoring it costs
+you PZ's final quit-time writes:
+
+> The newest files on the volume are stamped `2026-09-05T06:45:18`, while the S3 archive
+> was cut at `06:45:04`. `pzserver.service`'s `ExecStop` takes the `prestop` backup and
+> *then* RCON-quits, and PZ flushes on quit — so the volume and the snapshots are ~14
+> seconds newer than the archive. Prefer the volume, then the snapshots, then S3.
+
+
 ## Outstanding after the 2026-08-23 remediation deploy
 
 The audit remediation is applied and verified. One prerequisite remained outstanding as
@@ -695,6 +878,41 @@ first step rather than the one-liner the design implies.
 
 Trimmed deliberately — keep entries that change what a future run should *do*, and fold
 anything durable up into the step it belongs to.
+
+### 2026-10-22 — wound down to save cost (instances terminated, world preserved)
+
+Server had not been played since 2026-09-05 and was costing the ~$16.46/month fixed floor
+to sit idle. Terminated both instances and released both Elastic IPs; kept the world
+volume, the bucket, the SSM parameters and the state. Now ~$2.56/month.
+
+Full detail, including the restart procedure, is in
+[§ WOUND DOWN](#%EF%B8%8F-wound-down-as-of-2026-10-22--read-this-before-anything-else).
+What a future run should know:
+
+- **`disable_api_termination = true` is set on both instances**, so teardown is not just
+  `terminate-instances` — it fails with `OperationNotPermitted` until you clear the
+  attribute. Clear it per instance, do not remove it from the Terraform.
+- **Nothing automatic keeps a backup longer than 180 days.** DLM retains 7 daily
+  snapshots and every bucket lifecycle rule expires objects under `backups/` (21d
+  `keep=short`, 180d `keep=long`, 180d untagged floor). A wind-down therefore has to
+  create retention that does not exist in the steady state: two manual snapshots tagged
+  `keep=forever`, and an S3 copy under `archive/`, which no rule matches. Verified with
+  `head-object` reporting `Expiration: null`.
+- **The backup archive is not a complete substitute for the volume.** `ExecStop` takes the
+  `prestop` backup and *then* RCON-quits, and PZ flushes on quit, so the volume is ~14
+  seconds newer than the last archive (volume `06:45:18` vs archive `06:45:04`). Restore
+  order is volume → snapshot → S3.
+- **`version.conf` is not in the backup set.** It lives at the data-volume root, while the
+  archive is rooted at `Zomboid/`. The Steam branch pin therefore survives only on the
+  volume or in a volume snapshot — worth knowing before trusting an S3-only recovery.
+- **Editing the data volume does not require starting the `m7i.xlarge`.** Terminate the
+  game server first, then attach the freed volume to the bot host and mount it there.
+  That is how `PZ_UPDATE_HOLD=1` got set; it also made a read-only mount test of the
+  archival snapshot possible on a host that was being thrown away anyway.
+- **Disable alarm actions before terminating.** Three of the eight carry EC2 actions
+  (`reboot`, `recover`, `stop`) and all eight notify `pz-prod-alerts`; left enabled they
+  mail continuously once the instances vanish. `ActionsEnabled` is out-of-band state —
+  `terraform apply` will not turn them back on.
 
 ### 2026-09-02 — applied faeb892 + mod/version management feature, re-provisioned
 
