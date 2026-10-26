@@ -7,11 +7,28 @@ time. Lives in the **shared** AWS account `020949219706` alongside
 [foodblog](../foodblog), and shares its Route 53 zone: players connect to
 `pz.joncfrancis.co:16261`.
 
-**The stack is LIVE** in account `020949219706` as of 2026-08-22 — 72 resources, and
-billing is running (~$16/mo fixed plus ~$0.20 per hour the game server is up). The game
-server is normally **stopped**; the bot host is always on. `terraform apply` now changes
-production, so it needs the user's explicit go-ahead — as does anything that starts the
-game server. `plan` and `validate` remain free and safe.
+**The stack is WOUND DOWN** as of 2026-10-22. Both instances are terminated and both
+Elastic IPs released; what remains in account `020949219706` is the world volume
+`vol-09e3f5065531b0ccb` (`available`, unattached), the backup bucket, two `keep=forever`
+snapshots, the SSM parameters, the free networking, and the Terraform state — ~$2.56/mo,
+down from ~$16.46. Read
+[DEPLOY.md § WOUND DOWN](DEPLOY.md#%EF%B8%8F-wound-down-as-of-2026-10-22--read-this-before-anything-else)
+before touching anything.
+
+Three consequences for anything you do here:
+
+- **`terraform apply` rebuilds production and restarts billing** (~$16/mo fixed again). It
+  needs the user's explicit go-ahead. `plan` and `validate` remain free and safe.
+- **Restarting is an `apply`, not a restore.** The world volume still exists and is still
+  in state. A plan that proposes to replace or destroy `aws_ebs_volume.data` means the
+  state is wrong — stop rather than removing the `prevent_destroy` guard.
+- **Two things were set out of band and Terraform will not reconcile them**: all 8
+  CloudWatch alarm actions are disabled, and `PZ_UPDATE_HOLD=1` in
+  `/opt/pz/data/version.conf` (so the game will not auto-update into a build that may not
+  open this save). Both are steps in the restart procedure.
+
+While it was live, from 2026-08-22: 72 resources, ~$16/mo fixed plus ~$0.20 per hour the
+game server was up; the game server was normally stopped and the bot host always on.
 
 ## Stack & Commands
 Terraform ≥ 1.10 (native S3 state locking — no DynamoDB table) · AWS provider ~> 6.0 ·

@@ -48,6 +48,16 @@ Three things carry most of the design's weight:
 
 ## Status
 
+**⏸️ Wound down on 2026-10-22 to stop paying for an idle server.** Both instances are
+terminated and both Elastic IPs released; the fixed floor went from ~$16.46/month to
+~$2.56. The world was verified and kept in three independent copies — the original volume
+`vol-09e3f5065531b0ccb`, two `keep=forever` snapshots, and an S3 archive outside every
+lifecycle rule. **Bringing it back is a `terraform apply`, not a restore:**
+[DEPLOY.md § Restarting after a wind-down](DEPLOY.md#restarting-after-a-wind-down).
+
+<details>
+<summary>Status while it was live (2026-08-22 → 2026-10-22)</summary>
+
 **Live since 2026-08-22.** Connect at **`pz.joncfrancis.co:16261`**.
 
 The stack is applied (72 resources) and the full cycle is verified: a bare
@@ -63,11 +73,15 @@ watchdog are all running.
 when Discord is the thing that's broken. Everything the bot needs is in
 `terraform output bot_contract`.
 
+</details>
 Cost: **~$41/month** at 4 hours a day, against ~$164 for the same box left running. About
 $16 of that is fixed and paid whether anyone plays or not. The server stops itself after
 30 idle minutes.
 
 ## Cost, in one table
+
+> Figures below are for the **running** stack, kept for when it comes back. While wound
+> down it costs ~$2.56/month — see [DEPLOY.md](DEPLOY.md#what-it-costs-now).
 
 | | Monthly |
 |---|---|
