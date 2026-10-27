@@ -85,6 +85,16 @@ state, so **`terraform destroy` here removes the `pz` record and cannot touch th
 DNS.** That is the single most important safety property of sharing the zone, and it is a
 one-word difference (`data` vs `resource`) — do not change it.
 
+**The zone now has conventions of its own (2026-10-26).** `joncfrancis.co` is becoming the
+front door for several services, with HTTP behind CloudFront. This stack stays exactly as it
+is: the game is UDP, so `pz` remains a plain A record to the EIP. joninfra's
+[gateway.md](https://github.com/joncfrancisco/joninfra/blob/main/gateway.md) adopts this
+module's `data`-source pattern as the rule for every project, and adds one rule this stack
+broke once: **delete the record in the same change that releases the IP.** The 2026-10-22
+wind-down released the EIP and left the record pointing at it for four days. It was
+deleted by hand on 2026-10-26, and an `apply` recreates it. See
+[DEPLOY.md § Known loose end](DEPLOY.md#known-loose-end).
+
 **This also settles the EIP debate in [DESIGN §5](DESIGN.md#the-eip-question) in a way
 the design could not.** The design weighed a $3.65/month Elastic IP against "a Route 53 A
 record updated on each boot", and picked the EIP to keep DNS propagation out of the start
