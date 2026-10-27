@@ -97,7 +97,10 @@ on the open internet it is a full-control backdoor. Only UDP 16261–16262 faces
   unprompted. `plan` and `validate` are free and safe.
 - **The Route 53 zone is a `data` source, never a `resource`.** It is foodblog's — the apex
   and `www` records serve the blog. That one word is what stops `terraform destroy` here
-  from taking down `joncfrancis.co`. Do not "clean this up" into a managed zone.
+  from taking down `joncfrancis.co`. Do not "clean this up" into a managed zone. The
+  zone's cross-project rules live in joninfra's `gateway.md`. The one this stack broke:
+  **any change that releases the game EIP must delete the `pz` record too**, or the name
+  points at whoever AWS hands the address to next (it did, 2026-10-22 → 10-26).
 - **The account-wide `Safety Net` budget must be raised before applying** — ✅ done,
   $25 → $70 on 2026-08-23. PZ exceeds the old limit permanently and would have turned
   foodblog's only cost alarm into noise. See

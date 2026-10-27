@@ -37,7 +37,9 @@ was preserved, verified, and is waiting on disk. To bring it back, go to
 
 Also kept and needed on restart: the S3 bucket, all 21 `/pz/prod/*` SSM parameters
 (including the Discord token and both passwords), the VPC/subnet/IGW/security groups (free),
-the DLM policy, the Lambda alert relay, the `pz` DNS record, and the Terraform state.
+the DLM policy, the Lambda alert relay, and the Terraform state. The `pz` DNS record was
+kept at first, then deleted on 2026-10-26 because it pointed at the released EIP. Terraform
+recreates it on restart; see [Known loose end](#known-loose-end).
 
 **Both archival snapshots carry `keep=forever` and are NOT DLM-managed**, so nothing
 expires them. That tag is load-bearing — see the retention trap below.
@@ -97,15 +99,22 @@ on that volume deliberately.
 
 ### Known loose end
 
-`pz.joncfrancis.co` still resolves to `34.233.59.251`, which has been released back to
-AWS. The record is harmless for a game server — no TLS, no cookies, no auth — but it will
-point at a stranger's instance until the next `terraform apply` rewrites it to the new
-EIP. Remove it now with the command below if you would rather it not; Terraform will
-recreate it on restart either way.
+**Resolved 2026-10-26: the record is deleted.** `pz.joncfrancis.co` was left resolving to
+`34.233.59.251` after that EIP was released, which meant it would point at whichever
+stranger AWS handed the address to next. The original reasoning here, "harmless for a game
+server: no TLS, no cookies, no auth", undersold it. Anyone holding that IP could get a valid
+Let's Encrypt certificate for `pz.joncfrancis.co` and serve a page from a subdomain of the
+blog. It is the same failure that had `symfal.com` serving a stranger's load balancer in
+August. joninfra's `bin/status` now flags a record like this as `DANGLING`, and joninfra's
+[gateway.md](https://github.com/joncfrancisco/joninfra/blob/main/gateway.md) makes deleting
+the record part of releasing the IP.
+
+Terraform still has the record in state, so the restart `plan` shows it as a **create**
+(`+`), not an update. That is expected. It was removed with:
 
 ```bash
-# optional: retire the dangling record (zone Z02575211T1QV3GILBPJH is SHARED with foodblog —
-# this touches ONLY the pz name; never the apex or www)
+# zone Z02575211T1QV3GILBPJH is SHARED with foodblog — this touches ONLY the pz name;
+# never the apex or www
 aws route53 change-resource-record-sets --hosted-zone-id Z02575211T1QV3GILBPJH \
   --change-batch '{"Changes":[{"Action":"DELETE","ResourceRecordSet":{
     "Name":"pz.joncfrancis.co.","Type":"A","TTL":300,
@@ -129,7 +138,9 @@ aws ec2 describe-volumes --volume-ids vol-09e3f5065531b0ccb \
 
 # 2. Recreate the compute. Terraform state still lists the terminated instances and the
 #    released EIPs, so refresh marks them gone and the plan is a create — EXPECT:
-#      + 2 instances, + 2 EIPs, + 1 volume attachment, ~ 1 DNS record
+#      + 2 instances, + 2 EIPs, + 1 volume attachment, + 1 DNS record
+#    (the pz record is a create, not an update: it was deleted on 2026-10-26, see
+#    § Known loose end. A plan showing it as "~" means someone recreated it by hand.)
 #    and NO change to aws_ebs_volume.data. If the plan wants to replace or destroy that
 #    volume, STOP — prevent_destroy should refuse, and a plan that even proposes it means
 #    the state is wrong, not that the guard is in the way.
