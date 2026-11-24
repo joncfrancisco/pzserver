@@ -7,7 +7,11 @@ variable "security_group_id" { type = string }
 
 variable "instance_type" { type = string }
 variable "root_volume_gb" { type = number }
-variable "data_volume_gb" { type = number }
+variable "data_volume_id" {
+  description = "Existing world volume to attach to the game server, or null for none. See main.tf \"The world\"."
+  type        = string
+  default     = null
+}
 
 variable "server_name" { type = string }
 variable "xmx" { type = string }

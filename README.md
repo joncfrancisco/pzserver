@@ -50,9 +50,9 @@ Three things carry most of the design's weight:
 
 **⏸️ Wound down on 2026-10-22 to stop paying for an idle server.** Both instances are
 terminated and both Elastic IPs released; the fixed floor went from ~$16.46/month to
-~$2.56. The world was verified and kept in three independent copies — the original volume
-`vol-09e3f5065531b0ccb`, two `keep=forever` snapshots, and an S3 archive outside every
-lifecycle rule. **Bringing it back is a `terraform apply`, not a restore:**
+~$2.56, and under $0.20 after the November 2026 cleanup removed the original world volume
+and its DLM policy. The world is kept in two `keep=forever` snapshots and an S3 archive
+outside every lifecycle rule. **Bringing it back starts from the final snapshot:**
 [DEPLOY.md § Restarting after a wind-down](DEPLOY.md#restarting-after-a-wind-down).
 
 <details>

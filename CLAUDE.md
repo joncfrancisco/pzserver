@@ -8,10 +8,11 @@ time. Lives in the **shared** AWS account `020949219706` alongside
 `pz.joncfrancis.co:16261`.
 
 **The stack is WOUND DOWN** as of 2026-10-22. Both instances are terminated and both
-Elastic IPs released; what remains in account `020949219706` is the world volume
-`vol-09e3f5065531b0ccb` (`available`, unattached), the backup bucket, two `keep=forever`
-snapshots, the SSM parameters, the free networking, and the Terraform state — ~$2.56/mo,
-down from ~$16.46. Read
+Elastic IPs released. In the November 2026 cleanup the world volume
+`vol-09e3f5065531b0ccb` and its DLM snapshot policy were removed through Terraform too. What
+remains in account `020949219706` is the backup bucket, two `keep=forever` archive
+snapshots (now the only copies of the world outside S3), the SSM parameters, the free
+networking, and the Terraform state — well under $1/mo, down from ~$16.46. Read
 [DEPLOY.md § WOUND DOWN](DEPLOY.md#%EF%B8%8F-wound-down-as-of-2026-10-22--read-this-before-anything-else)
 before touching anything.
 
@@ -19,9 +20,12 @@ Three consequences for anything you do here:
 
 - **`terraform apply` rebuilds production and restarts billing** (~$16/mo fixed again). It
   needs the user's explicit go-ahead. `plan` and `validate` remain free and safe.
-- **Restarting is an `apply`, not a restore.** The world volume still exists and is still
-  in state. A plan that proposes to replace or destroy `aws_ebs_volume.data` means the
-  state is wrong — stop rather than removing the `prevent_destroy` guard.
+- **Restarting starts from a snapshot.** The world volume is gone and no longer a
+  Terraform resource. Create a volume from `snap-06c94098a569b5849` by hand and pass its id
+  as `data_volume_id`; see DEPLOY.md § Restarting after a wind-down. Never delete the two
+  `keep=forever` snapshots.
+- **Any `apply` while wound down must be `-target`ed.** State still lists the terminated
+  instances and released EIPs, so an untargeted apply recreates them and restarts billing.
 - **Two things were set out of band and Terraform will not reconcile them**: all 8
   CloudWatch alarm actions are disabled, and `PZ_UPDATE_HOLD=1` in
   `/opt/pz/data/version.conf` (so the game will not auto-update into a build that may not
@@ -62,7 +66,7 @@ infra/
   bootstrap/               ← one-time stack that creates the state bucket
   modules/
     network/               ← VPC, subnet, IGW, sg-game + sg-bot
-    game-server/           ← instance, EIP, data volume, IAM, DLM, ops upload, SSM config
+    game-server/           ← instance, EIP, data-volume attachment, IAM, ops upload, SSM config
     bot-host/              ← instance, EIP, IAM (the bot's HOST; the code is in ../pzbot)
     backups/               ← S3 bucket, lifecycle, TLS-only policy
     dns/                   ← the one record in foodblog's shared zone

@@ -30,14 +30,14 @@ was preserved, verified, and is waiting on disk. To bring it back, go to
 
 | What | Id | Verified |
 |---|---|---|
-| **The live world volume** (authoritative) | `vol-09e3f5065531b0ccb`, 30 GB, `available`, unattached | mounted read-write, 20,713 save files, cleanly unmounted |
+| ~~The live world volume~~ | `vol-09e3f5065531b0ccb`, 30 GB | **removed in the November 2026 cleanup**, with the DLM policy; the final snapshot below was taken from it quiesced |
 | **Archival snapshot, final** | `snap-06c94098a569b5849` | `completed`, 3,573 blocks (~1.75 GB); taken from the quiesced volume |
 | **Archival snapshot, pre-edit** | `snap-04b0b0513a3a777e1` | `completed`, 3,573 blocks; **mounted read-only on a live host and confirmed to contain the world** |
 | **S3 archive copy** | `s3://pz-prod-backups-020949219706/archive/winddown-2026-10-22/2026-09-05T06-45-04Z__prestop__idle-for-30m.tar.zst` | downloaded, fully decompressed, `Saves/`+`Server/`+`db/` all present, both SQLite DBs `integrity_check=ok`, sha256 identical to the original |
 
 Also kept and needed on restart: the S3 bucket, all 21 `/pz/prod/*` SSM parameters
 (including the Discord token and both passwords), the VPC/subnet/IGW/security groups (free),
-the DLM policy, the Lambda alert relay, and the Terraform state. The `pz` DNS record was
+the Lambda alert relay, and the Terraform state. The `pz` DNS record was
 kept at first, then deleted on 2026-10-26 because it pointed at the released EIP. Terraform
 recreates it on restart; see [Known loose end](#known-loose-end).
 
@@ -85,17 +85,17 @@ the world left by March 2027**. Hence the two manual snapshots and the S3 copy u
 
 | | Monthly |
 |---|---|
-| World volume, 30 GB gp3 @ $0.08 | $2.40 |
+| ~~World volume, 30 GB gp3 @ $0.08~~ | ~~$2.40~~ removed |
 | Snapshots (~1.75 GB of unique blocks, heavily shared across all 9) | ~$0.15 |
 | S3, 92.7 MB | ~$0.01 |
 | VPC, subnet, IGW, security groups, SSM Standard params, idle Lambda | $0.00 |
 | **Total** | **~$2.56** |
 | *was* | *~$16.46* |
 
-About 84% off the fixed floor. The remaining $2.40 is the price of keeping the
-authoritative world volume rather than trusting only the archives; deleting it would take
-this under $0.20/month and is a one-line change to step 3 below, but `prevent_destroy` is
-on that volume deliberately.
+The volume and the DLM policy were removed in the November 2026 cleanup, which takes the
+floor under $0.20/month. Deleting the policy does not delete the 7 snapshots it had taken;
+they are tagged `aws:dlm:lifecycle-policy-id=policy-0568ed672cc15a626` and can be deleted by
+hand. That never touches the two `keep=forever` archives, which are not DLM-managed.
 
 ### Known loose end
 
@@ -125,25 +125,26 @@ aws route53 change-resource-record-sets --hosted-zone-id Z02575211T1QV3GILBPJH \
 
 ## Restarting after a wind-down
 
-This is [G6](DESIGN.md#goals) exercised for real. The world volume still exists and is
-still in Terraform state, so this is an `apply`, not a restore — **do not reach for
-[Restore](#restore)**; that would roll the world back to the 2026-09-05 archive and lose
+This is [G6](DESIGN.md#goals) exercised for real. The world volume was removed in the
+November 2026 cleanup, so a restart begins by recreating it from the final archive snapshot
+(step 1). **Do not reach for [Restore](#restore)**; that would roll the world back to the 2026-09-05 archive and lose
 PZ's final quit-time writes (see the note at the end of this section).
 
 ```bash
-# 1. Confirm the world is still there before building anything around it.
-aws ec2 describe-volumes --volume-ids vol-09e3f5065531b0ccb \
-  --query 'Volumes[0].{State:State,GB:Size,AZ:AvailabilityZone}'
-#    → State must be "available". If it is "in-use", something else grabbed it; stop.
+# 1. Recreate the world volume from the final archive snapshot, then put its id in
+#    prod.tfvars as data_volume_id = "vol-…".
+aws ec2 create-volume --snapshot-id snap-06c94098a569b5849 --availability-zone us-east-1a \
+  --volume-type gp3 --encrypted \
+  --tag-specifications 'ResourceType=volume,Tags=[{Key=Name,Value=pz-prod-data},{Key=pz:role,Value=gameserver-data}]'
+#    Restoring the DLM policy (backup tier T3) means reverting the November 2026 cleanup
+#    commit's DLM resources; it is not needed to play.
 
 # 2. Recreate the compute. Terraform state still lists the terminated instances and the
 #    released EIPs, so refresh marks them gone and the plan is a create — EXPECT:
 #      + 2 instances, + 2 EIPs, + 1 volume attachment, + 1 DNS record
 #    (the pz record is a create, not an update: it was deleted on 2026-10-26, see
 #    § Known loose end. A plan showing it as "~" means someone recreated it by hand.)
-#    and NO change to aws_ebs_volume.data. If the plan wants to replace or destroy that
-#    volume, STOP — prevent_destroy should refuse, and a plan that even proposes it means
-#    the state is wrong, not that the guard is in the way.
+#    The volume attachment uses the data_volume_id from step 1.
 terraform -chdir=infra init
 terraform -chdir=infra plan  -var-file=prod.tfvars
 terraform -chdir=infra apply -var-file=prod.tfvars
@@ -190,9 +191,8 @@ because Nitro device numbering is not stable.
 
 ### If the volume is gone and you are restoring from an archive
 
-Only then: create a volume from `snap-06c94098a569b5849` in `us-east-1a`, tag it
-`Name=pz-prod-data` / `pz:role=gameserver-data` (the DLM policy selects on that second
-tag), `terraform import` it over `module.game_server.aws_ebs_volume.data`, and apply. The
+Since the November 2026 cleanup this is the normal restart path: step 1 above creates a
+volume from `snap-06c94098a569b5849`, and `data_volume_id` attaches it. The
 S3 archive under `archive/winddown-2026-10-22/` is the last resort, and restoring it costs
 you PZ's final quit-time writes:
 

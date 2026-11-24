@@ -72,10 +72,10 @@ variable "root_volume_gb" {
   default     = 30
 }
 
-variable "data_volume_gb" {
-  description = "THE WORLD. Mounted at /opt/pz/data, DeleteOnTermination=false, prevent_destroy=true."
-  type        = number
-  default     = 30
+variable "data_volume_id" {
+  description = "THE WORLD, if one exists. The Terraform-managed world volume was removed in the November 2026 cleanup; on a restart, create a volume from the final archive snapshot and set its id here. Null attaches nothing."
+  type        = string
+  default     = null
 }
 
 variable "server_name" {
