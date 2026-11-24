@@ -17,7 +17,7 @@ output "bot_instance_id" {
 }
 
 output "data_volume_id" {
-  description = "THE WORLD. prevent_destroy is on; see INFRA.md before doing anything to this."
+  description = "The attached world volume, or null. The managed volume was removed in the November 2026 cleanup; see DEPLOY.md."
   value       = module.game_server.data_volume_id
 }
 

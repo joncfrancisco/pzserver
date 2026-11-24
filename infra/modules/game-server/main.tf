@@ -115,72 +115,27 @@ resource "aws_eip" "game" {
 }
 
 # --- The world ---------------------------------------------------------------------
-
-resource "aws_ebs_volume" "data" {
-  availability_zone = var.availability_zone
-  size              = var.data_volume_gb
-  type              = "gp3"
-  encrypted         = true
-
-  tags = {
-    Name       = "${var.name_prefix}-data"
-    "pz:role"  = "gameserver-data" # the DLM policy in this module selects on this
-    "pz:stack" = var.stack
-  }
-
-  # THE WORLD. One of two prevent_destroy resources in the stack.
-  lifecycle {
-    prevent_destroy = true
-  }
-}
+#
+# The stack was wound down on 2026-10-22, and in the November 2026 cleanup the world volume
+# (vol-09e3f5065531b0ccb) and its DLM snapshot policy were removed to stop paying for
+# them. The world now lives only in the two `keep=forever` archive snapshots and the S3
+# archive copy -- see DEPLOY.md "WOUND DOWN".
+#
+# The volume is no longer a Terraform resource. On a restart, create a volume from the
+# final archive snapshot by hand, in var.availability_zone, tagged `pz:role =
+# gameserver-data`, and pass its id as `data_volume_id`. Until then this attachment does
+# not exist. Managing a volume created from a snapshot here would mean a new resource
+# with `snapshot_id`, which is a decision for the restart, not for the wind-down.
 
 resource "aws_volume_attachment" "data" {
+  count = var.data_volume_id == null ? 0 : 1
+
   device_name = "/dev/sdf"
-  volume_id   = aws_ebs_volume.data.id
+  volume_id   = var.data_volume_id
   instance_id = aws_instance.game.id
 
   # On Nitro this surfaces as /dev/nvme1n1, and the number is not guaranteed stable, so
   # nothing on the host mounts by device path -- provision.sh labels the filesystem
   # `pzdata` and the mount unit uses /dev/disk/by-label/pzdata.
   stop_instance_before_detaching = true
-}
-
-# --- T3: EBS snapshots -------------------------------------------------------------
-#
-# Independent of the S3 archives: this recovers "the filesystem is confused", which a
-# tar of a corrupt filesystem does not.
-
-resource "aws_dlm_lifecycle_policy" "data_snapshots" {
-  description        = "${var.name_prefix} daily data-volume snapshot - backup tier T3"
-  execution_role_arn = aws_iam_role.dlm.arn
-  state              = "ENABLED"
-
-  policy_details {
-    resource_types = ["VOLUME"]
-
-    target_tags = {
-      # pz:role alone is unique to the data volume. DLM's target_tags match is an OR,
-      # not an AND -- adding pz:stack here widened the selector to every volume in the
-      # stack instead of narrowing it (see issue #28).
-      "pz:role" = "gameserver-data"
-    }
-
-    schedule {
-      name = "daily-7day"
-
-      create_rule {
-        interval      = 24
-        interval_unit = "HOURS"
-        # 09:00 UTC: after the 08:15/08:30 foodblog backup timers, and in the small
-        # hours US-time when nobody is playing.
-        times = ["09:00"]
-      }
-
-      retain_rule {
-        count = 7
-      }
-
-      copy_tags = true
-    }
-  }
 }

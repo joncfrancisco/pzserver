@@ -45,7 +45,7 @@ module "game_server" {
 
   instance_type  = var.game_instance_type
   root_volume_gb = var.root_volume_gb
-  data_volume_gb = var.data_volume_gb
+  data_volume_id = var.data_volume_id
 
   server_name          = var.server_name
   xmx                  = var.game_xmx
