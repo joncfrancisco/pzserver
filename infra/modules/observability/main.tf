@@ -62,6 +62,8 @@ resource "aws_cloudwatch_metric_alarm" "stale_backup" {
 # Save directories grow with explored map area, so this will fire eventually. Much
 # better to know a week early than to find out when the world fails to save.
 resource "aws_cloudwatch_metric_alarm" "disk" {
+  count = var.game_instance_enabled ? 1 : 0
+
   alarm_name          = "${var.name_prefix}-data-disk-high"
   alarm_description   = "Data volume above 85% used."
   namespace           = "CWAgent"
@@ -101,6 +103,8 @@ resource "aws_cloudwatch_metric_alarm" "disk" {
 # MemAvailable is the kernel's own estimate and correctly excludes non-reclaimable
 # shmem, so it is the only one of the two that tracks reality here.
 resource "aws_cloudwatch_metric_alarm" "memory" {
+  count = var.game_instance_enabled ? 1 : 0
+
   alarm_name          = "${var.name_prefix}-memory-low-available"
   alarm_description   = "Less than 10% of memory available for 15 minutes -- consider r7i.xlarge."
   namespace           = "CWAgent"
@@ -146,6 +150,8 @@ resource "aws_cloudwatch_metric_alarm" "memory" {
 # into "at most 13 hours, once". Missing data means the instance is stopped, which is the
 # normal state and must never page or act.
 resource "aws_cloudwatch_metric_alarm" "runaway_auto_stop" {
+  count = var.game_instance_enabled ? 1 : 0
+
   alarm_name        = "${var.name_prefix}-runaway-auto-stop"
   alarm_description = "Game instance has been running at near-zero CPU for 13 hours -- past the session cap, so every in-guest guard has failed. Stopping it."
 
@@ -217,6 +223,8 @@ resource "aws_cloudwatch_event_target" "audit_alarm_state" {
 # start/stop is the NORMAL operating rhythm of this stack -- the instance is stopped by
 # default and that is the entire cost model -- so routine transitions are audit-only.
 resource "aws_cloudwatch_event_rule" "state_change" {
+  count = var.game_instance_enabled ? 1 : 0
+
   name        = "${var.name_prefix}-instance-state-change"
   description = "Any stop/start of the PZ game server, whoever caused it. Audit only."
 
@@ -231,7 +239,9 @@ resource "aws_cloudwatch_event_rule" "state_change" {
 }
 
 resource "aws_cloudwatch_event_target" "state_change_audit" {
-  rule      = aws_cloudwatch_event_rule.state_change.name
+  count = var.game_instance_enabled ? 1 : 0
+
+  rule      = aws_cloudwatch_event_rule.state_change[0].name
   target_id = "audit-log"
   arn       = var.audit_log_group_arn
 }
@@ -241,6 +251,8 @@ resource "aws_cloudwatch_event_target" "state_change_audit" {
 # either an AWS retirement or somebody in the console, and the world volume's
 # prevent_destroy is the only thing standing between that and a lost save.
 resource "aws_cloudwatch_event_rule" "terminated" {
+  count = var.game_instance_enabled ? 1 : 0
+
   name        = "${var.name_prefix}-instance-terminated"
   description = "Game server TERMINATED -- never normal for this stack. Pages."
 
@@ -255,7 +267,9 @@ resource "aws_cloudwatch_event_rule" "terminated" {
 }
 
 resource "aws_cloudwatch_event_target" "terminated_sns" {
-  rule      = aws_cloudwatch_event_rule.terminated.name
+  count = var.game_instance_enabled ? 1 : 0
+
+  rule      = aws_cloudwatch_event_rule.terminated[0].name
   target_id = "sns"
   arn       = var.alert_topic_arn
 }

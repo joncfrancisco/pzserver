@@ -1,3 +1,9 @@
+variable "enabled" {
+  description = "false leaves out the instance, its EIP and the volume attachment (the wound-down state). Everything else in this module stays."
+  type        = bool
+  default     = true
+}
+
 variable "name_prefix" { type = string }
 variable "stack" { type = string }
 variable "region" { type = string }

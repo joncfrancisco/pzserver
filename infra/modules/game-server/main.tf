@@ -41,6 +41,8 @@ resource "aws_s3_object" "ops" {
 # --- Compute -----------------------------------------------------------------------
 
 resource "aws_instance" "game" {
+  count = var.enabled ? 1 : 0
+
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = var.instance_type
   subnet_id              = var.subnet_id
@@ -108,8 +110,10 @@ resource "aws_instance" "game" {
 }
 
 resource "aws_eip" "game" {
+  count = var.enabled ? 1 : 0
+
   domain   = "vpc"
-  instance = aws_instance.game.id
+  instance = aws_instance.game[0].id
 
   tags = { Name = "${var.name_prefix}-eip" }
 }
@@ -128,11 +132,11 @@ resource "aws_eip" "game" {
 # with `snapshot_id`, which is a decision for the restart, not for the wind-down.
 
 resource "aws_volume_attachment" "data" {
-  count = var.data_volume_id == null ? 0 : 1
+  count = var.enabled && var.data_volume_id != null ? 1 : 0
 
   device_name = "/dev/sdf"
   volume_id   = var.data_volume_id
-  instance_id = aws_instance.game.id
+  instance_id = aws_instance.game[0].id
 
   # On Nitro this surfaces as /dev/nvme1n1, and the number is not guaranteed stable, so
   # nothing on the host mounts by device path -- provision.sh labels the filesystem

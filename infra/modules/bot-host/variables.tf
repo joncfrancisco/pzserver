@@ -1,3 +1,9 @@
+variable "enabled" {
+  description = "false leaves out the instance, its EIP and its three alarms (the wound-down state). IAM stays."
+  type        = bool
+  default     = true
+}
+
 variable "name_prefix" { type = string }
 variable "stack" { type = string }
 variable "region" { type = string }

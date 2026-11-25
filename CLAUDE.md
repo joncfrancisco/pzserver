@@ -24,8 +24,11 @@ Three consequences for anything you do here:
   Terraform resource. Create a volume from `snap-06c94098a569b5849` by hand and pass its id
   as `data_volume_id`; see DEPLOY.md § Restarting after a wind-down. Never delete the two
   `keep=forever` snapshots.
-- **Any `apply` while wound down must be `-target`ed.** State still lists the terminated
-  instances and released EIPs, so an untargeted apply recreates them and restarts billing.
+- **`compute_enabled = false` in prod.tfvars is what keeps a plain `apply` from relaunching.**
+  It leaves both instances, both EIPs, the pz DNS record and the instance-scoped alarms and
+  rules out of the config. Before it existed, an apply (targeted or not) that reached the
+  instances recreated them: a `-target` on 2026-11-24 launched a new `m7i.xlarge`. Flip it
+  to `true` only as part of the restart.
 - **Two things were set out of band and Terraform will not reconcile them**: all 8
   CloudWatch alarm actions are disabled, and `PZ_UPDATE_HOLD=1` in
   `/opt/pz/data/version.conf` (so the game will not auto-update into a build that may not

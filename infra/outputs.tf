@@ -1,6 +1,6 @@
 output "connect_string" {
-  description = "What you paste into the Project Zomboid client. Stable forever: the A record points at an Elastic IP, so it is written once at apply time and never on boot."
-  value       = "${module.dns.fqdn}:16261"
+  description = "What you paste into the Project Zomboid client. Stable forever: the A record points at an Elastic IP, so it is written once at apply time and never on boot. Null while wound down (compute_enabled = false), when the record does not exist."
+  value       = var.compute_enabled ? "${module.dns.fqdn}:16261" : null
 }
 
 output "game_public_ip" {

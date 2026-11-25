@@ -1,8 +1,19 @@
 variable "name_prefix" { type = string }
 variable "stack" { type = string }
 variable "region" { type = string }
-variable "game_instance_id" { type = string }
-variable "data_volume_id" { type = string }
+variable "game_instance_enabled" {
+  description = "false leaves out every alarm and rule scoped to the game instance id (disk, memory, runaway auto-stop, state change, terminated). The stack-scoped alarms, the audit rule and the budget stay."
+  type        = bool
+  default     = true
+}
+variable "game_instance_id" {
+  type    = string
+  default = null
+}
+variable "data_volume_id" {
+  type    = string
+  default = null
+}
 variable "monthly_budget_usd" { type = number }
 variable "alert_topic_arn" { type = string }
 

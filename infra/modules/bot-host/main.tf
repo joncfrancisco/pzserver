@@ -30,6 +30,8 @@ data "aws_ami" "al2023" {
 }
 
 resource "aws_instance" "bot" {
+  count = var.enabled ? 1 : 0
+
   ami                    = data.aws_ami.al2023.id
   instance_type          = var.instance_type
   subnet_id              = var.subnet_id
@@ -90,8 +92,10 @@ resource "aws_instance" "bot" {
 # rebuild does not change it, and it keeps the instance reachable over SSM without
 # depending on a public IP being auto-assigned.
 resource "aws_eip" "bot" {
+  count = var.enabled ? 1 : 0
+
   domain   = "vpc"
-  instance = aws_instance.bot.id
+  instance = aws_instance.bot[0].id
   tags     = { Name = "${var.name_prefix}-bot-eip" }
 }
 
@@ -119,12 +123,14 @@ resource "aws_eip" "bot" {
 # hardware, keeping the instance id, private IP and EIP -- which matters, because the
 # bot's whole job is to still be reachable.
 resource "aws_cloudwatch_metric_alarm" "bot_system_check" {
+  count = var.enabled ? 1 : 0
+
   alarm_name        = "${var.name_prefix}-bot-system-check-failed"
   alarm_description = "Bot host failed its EC2 system status check -- underlying hardware. Recovering."
 
   namespace   = "AWS/EC2"
   metric_name = "StatusCheckFailed_System"
-  dimensions  = { InstanceId = aws_instance.bot.id }
+  dimensions  = { InstanceId = aws_instance.bot[0].id }
 
   statistic           = "Maximum"
   period              = 60
@@ -144,12 +150,14 @@ resource "aws_cloudwatch_metric_alarm" "bot_system_check" {
 # The guest itself: exhausted memory, a corrupted filesystem, a kernel that stopped
 # answering. A reboot fixes the ones that are fixable and makes the rest loud.
 resource "aws_cloudwatch_metric_alarm" "bot_instance_check" {
+  count = var.enabled ? 1 : 0
+
   alarm_name        = "${var.name_prefix}-bot-instance-check-failed"
   alarm_description = "Bot host failed its EC2 instance status check -- the guest is not answering. Rebooting."
 
   namespace   = "AWS/EC2"
   metric_name = "StatusCheckFailed_Instance"
-  dimensions  = { InstanceId = aws_instance.bot.id }
+  dimensions  = { InstanceId = aws_instance.bot[0].id }
 
   statistic           = "Maximum"
   period              = 60
@@ -177,7 +185,8 @@ resource "aws_cloudwatch_metric_alarm" "bot_instance_check" {
 # that does not exist yet. Flip it to true in prod.tfvars once the bot is publishing --
 # `aws cloudwatch list-metrics --namespace PZ --metric-name BotAlive` is the check.
 resource "aws_cloudwatch_metric_alarm" "bot_heartbeat" {
-  count = var.enable_bot_heartbeat_alarm ? 1 : 0
+  # Off while wound down too: with no bot there is no heartbeat, and missing data breaches.
+  count = var.enabled && var.enable_bot_heartbeat_alarm ? 1 : 0
 
   alarm_name        = "${var.name_prefix}-bot-heartbeat-missing"
   alarm_description = "No PZ/BotAlive heartbeat for 5 minutes. The host may be fine and the bot still dead."

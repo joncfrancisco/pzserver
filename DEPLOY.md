@@ -139,9 +139,12 @@ aws ec2 create-volume --snapshot-id snap-06c94098a569b5849 --availability-zone u
 #    Restoring the DLM policy (backup tier T3) means reverting the November 2026 cleanup
 #    commit's DLM resources; it is not needed to play.
 
-# 2. Recreate the compute. Terraform state still lists the terminated instances and the
-#    released EIPs, so refresh marks them gone and the plan is a create — EXPECT:
-#      + 2 instances, + 2 EIPs, + 1 volume attachment, + 1 DNS record
+# 2. Recreate the compute: set compute_enabled = true in prod.tfvars (it is false while
+#    wound down, which is what stops a plain apply from relaunching anything). The plan is
+#    a create — EXPECT:
+#      + 2 instances, + 2 EIPs, + 1 volume attachment, + 1 DNS record,
+#      + the 6 instance-scoped alarms and 2 EventBridge rules (+ targets) that
+#        compute_enabled = false left out
 #    (the pz record is a create, not an update: it was deleted on 2026-10-26, see
 #    § Known loose end. A plan showing it as "~" means someone recreated it by hand.)
 #    The volume attachment uses the data_volume_id from step 1.
@@ -161,7 +164,9 @@ aws ssm start-session --target "$GAME"
 #     find /opt/pz/data/Zomboid/Saves -type f | wc -l     # expect 20713 (± your own play)
 #     cat /opt/pz/data/version.conf        # PZ_UPDATE_HOLD=1 until you lift it
 
-# 4. Re-enable the alarm actions. Terraform will NOT do this.
+# 4. Re-enable the alarm actions. Terraform will NOT do this for the two stack-scoped
+#    alarms (backup-stale, server-not-ready). The other six were recreated in step 2 with
+#    actions on, so for them this loop is a harmless no-op.
 for A in pz-prod-backup-stale pz-prod-bot-heartbeat-missing \
          pz-prod-bot-instance-check-failed pz-prod-bot-system-check-failed \
          pz-prod-data-disk-high pz-prod-memory-low-available \
