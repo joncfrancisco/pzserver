@@ -1,5 +1,11 @@
 # Production stack -- one PZ world, alongside foodblog in account 020949219706.
 
+# WOUND DOWN since 2026-10-22. false keeps both instances, both EIPs, the pz DNS record
+# and the instance-scoped alarms out of the plan, so a plain `terraform apply` cannot
+# relaunch anything that bills (it did, via a -target on 2026-11-24). Set true only as
+# part of DEPLOY.md "Restarting after a wind-down".
+compute_enabled = false
+
 region            = "us-east-1"
 availability_zone = "us-east-1a"
 stack             = "prod"

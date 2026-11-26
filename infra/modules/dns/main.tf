@@ -18,6 +18,8 @@ data "aws_route53_zone" "shared" {
 #
 # It is also free: Route 53 bills per hosted zone, and foodblog already pays the $0.50.
 resource "aws_route53_record" "game" {
+  count = var.enabled ? 1 : 0
+
   zone_id = data.aws_route53_zone.shared.zone_id
   name    = "${var.label}.${data.aws_route53_zone.shared.name}"
   type    = "A"

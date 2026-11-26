@@ -35,6 +35,22 @@ variable "public_subnet_cidr" {
   default = "10.20.1.0/24"
 }
 
+# --- Compute on/off ---------------------------------------------------------------
+
+variable "compute_enabled" {
+  description = <<-EOT
+    false: the stack is WOUND DOWN. Both instances, both Elastic IPs, the world-volume
+    attachment, the pz DNS record and every alarm or EventBridge rule scoped to an
+    instance id are left out, so a plain `terraform apply` cannot relaunch anything that
+    bills. Networking, IAM, SSM documents and parameters, the backup bucket, the alert
+    topic and relay, the stack-scoped alarms and the budget all stay.
+    true: the normal running stack. Flipping this back is the restart; see DEPLOY.md
+    "Restarting after a wind-down".
+  EOT
+  type        = bool
+  default     = true
+}
+
 # --- Game server ------------------------------------------------------------------
 
 variable "game_instance_type" {

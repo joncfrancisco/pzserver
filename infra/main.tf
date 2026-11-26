@@ -36,6 +36,8 @@ module "backups" {
 module "game_server" {
   source = "./modules/game-server"
 
+  enabled = var.compute_enabled
+
   name_prefix       = local.name_prefix
   stack             = var.stack
   region            = var.region
@@ -67,6 +69,8 @@ module "game_server" {
 module "bot_host" {
   source = "./modules/bot-host"
 
+  enabled = var.compute_enabled
+
   name_prefix       = local.name_prefix
   stack             = var.stack
   region            = var.region
@@ -86,6 +90,9 @@ module "bot_host" {
 module "dns" {
   source = "./modules/dns"
 
+  # Off with the compute: the record must never outlive the EIP it points at (joninfra
+  # gateway.md; it dangled 2026-10-22 to 10-26).
+  enabled   = var.compute_enabled
   zone_id   = var.route53_zone_id
   label     = var.dns_label
   target_ip = module.game_server.public_ip
@@ -104,13 +111,14 @@ module "alert_relay" {
 module "observability" {
   source = "./modules/observability"
 
-  name_prefix        = local.name_prefix
-  stack              = var.stack
-  region             = var.region
-  game_instance_id   = module.game_server.instance_id
-  data_volume_id     = module.game_server.data_volume_id
-  monthly_budget_usd = var.monthly_budget_usd
-  alert_topic_arn    = aws_sns_topic.alerts.arn
+  name_prefix           = local.name_prefix
+  stack                 = var.stack
+  region                = var.region
+  game_instance_enabled = var.compute_enabled
+  game_instance_id      = module.game_server.instance_id
+  data_volume_id        = module.game_server.data_volume_id
+  monthly_budget_usd    = var.monthly_budget_usd
+  alert_topic_arn       = aws_sns_topic.alerts.arn
 
   audit_log_group_arn = aws_cloudwatch_log_group.audit.arn
 }
